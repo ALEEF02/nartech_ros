@@ -1,6 +1,8 @@
 <?xml version="1.0" ?>
 <robot name="turtlebot4" xmlns:xacro="http://ros.org/wiki/xacro">
 
+<xacro:include filename="$(find nartech_ros)/g1_description/urdf/g1_macro.urdf.xacro" />
+
 <!--
 <gazebo>
     <plugin name="gz_ros2_control::GazeboSimROS2ControlPlugin" filename="libgz_ros2_control-system.so"> 
@@ -83,12 +85,13 @@
 
   <!-- Turtlebot4 shell definition -->
   <link name="shell_link">
+    <!-- Hide the visual for now
     <visual>
       <origin xyz="0 0 0" rpy="${pi/2} 0 ${pi/2}"/>
       <geometry>
         <mesh filename="package://nav2_minimal_tb4_description/meshes/shell.dae" scale="1 1 1" />
       </geometry>
-    </visual>
+    </visual> -->
     <collision name="shell_collision">
       <geometry>
         <mesh filename="package://nav2_minimal_tb4_description/meshes/shell_collision.dae" scale="1 1 1" />
@@ -168,5 +171,12 @@
     rpy="0.0 0.0 0.0"
     use_sim="$(arg use_sim)"
     use_fake_hardware="$(arg use_fake_hardware)" />
+
+  <!-- Attach Unitree G1 as a payload on the TB4 base_link.
+       Adjust xyz to position the G1 pelvis above the base.
+       For example, 0.0, 0.0, 0.25m above the base_link. -->
+  <xacro:g1_attach parent_link="base_link"
+                   xyz="0 0 0.25"
+                   rpy="0 0 0" />
 
 </robot>
