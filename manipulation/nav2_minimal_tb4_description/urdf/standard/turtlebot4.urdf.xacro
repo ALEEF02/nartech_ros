@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <robot name="turtlebot4" xmlns:xacro="http://ros.org/wiki/xacro">
 
-<xacro:include filename="$(find nartech_ros)/g1_description/urdf/g1_macro.urdf.xacro" />
+<xacro:include filename="$(find nav2_minimal_tb4_description)/urdf/standard/g1_macro.urdf.xacro" />
 
 <!--
 <gazebo>

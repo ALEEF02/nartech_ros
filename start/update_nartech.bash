@@ -27,6 +27,7 @@ if zenity --question --text="Do you want to update NARTECH?" --title="Update NAR
     cp -r ~/nartech_ws/src/nartech_ros/manipulation/tb4_openmanipulator_moveit ~/nartech_ws/src/
     cp -r ~/nartech_ws/src/nartech_ros/manipulation/open_manipulator_x_description ~/nartech_ws/src/
     cp ~/nartech_ws/src/nartech_ros/manipulation/nav2_minimal_tb4_description/urdf/standard/turtlebot4.urdf.xacro /opt/ros/jazzy/share/nav2_minimal_tb4_description/urdf/standard/
+    cp ~/nartech_ws/src/nartech_ros/manipulation/nav2_minimal_tb4_description/urdf/standard/g1_macro.urdf.xacro /opt/ros/jazzy/share/nav2_minimal_tb4_description/urdf/standard/
     cd ~/AniNAL
     git pull
     cd ~/OpenNARS-for-Applications
