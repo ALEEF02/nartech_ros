@@ -10,6 +10,12 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+
+        # Install the G1 xacro into the share/nartech_ros tree
+        (
+            'share/' + package_name + '/g1_description/urdf',
+            ['g1_description/urdf/g1_macro.urdf.xacro']
+        ),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
