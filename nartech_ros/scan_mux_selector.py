@@ -5,7 +5,6 @@ import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
 from rclpy.qos import qos_profile_sensor_data
-from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
 
 
@@ -44,6 +43,7 @@ class ScanMuxSelector(Node):
         self.publish_rate_hz = float(self.declare_parameter(
             'scan_publish_rate_hz', 20.0
         ).value)
+        # Kept for backward-compatible config files; not used for gating.
         self.max_input_msg_age_sec = float(self.declare_parameter(
             'max_input_msg_age_sec', 1.0
         ).value)
@@ -61,8 +61,12 @@ class ScanMuxSelector(Node):
         self.secondary_msg = None
         self.primary_seen_time = None
         self.secondary_seen_time = None
+        self.primary_seq = 0
+        self.secondary_seq = 0
         self.primary_fresh_since = None
         self.active_source = None
+        self.last_published_source = None
+        self.last_published_seq = -1
 
         self.scan_pub = self.create_publisher(LaserScan, self.output_topic, 10)
         self.primary_sub = self.create_subscription(
@@ -77,17 +81,18 @@ class ScanMuxSelector(Node):
         self.get_logger().info(
             "Scan selector active: "
             f"primary={self.primary_topic}, secondary={self.secondary_topic}, out={self.output_topic}, "
-            f"restamp={self.restamp_scan}, frame_override='{self.scan_output_frame}', "
-            f"max_input_msg_age_sec={self.max_input_msg_age_sec}"
+            f"restamp={self.restamp_scan}, frame_override='{self.scan_output_frame}'"
         )
 
     def _primary_cb(self, msg: LaserScan):
         self.primary_msg = msg
         self.primary_seen_time = self.get_clock().now()
+        self.primary_seq += 1
 
     def _secondary_cb(self, msg: LaserScan):
         self.secondary_msg = msg
         self.secondary_seen_time = self.get_clock().now()
+        self.secondary_seq += 1
 
     def _is_fresh(self, seen_time, timeout_sec: float) -> bool:
         if seen_time is None:
@@ -95,25 +100,9 @@ class ScanMuxSelector(Node):
         age = self.get_clock().now() - seen_time
         return age <= Duration(seconds=timeout_sec)
 
-    def _header_is_fresh(self, msg: LaserScan) -> bool:
-        if msg is None:
-            return False
-        stamp = Time.from_msg(msg.header.stamp)
-        # Some producers may leave stamp as zero; in that case use receive-time freshness only.
-        if stamp.nanoseconds == 0:
-            return True
-        age_sec = (self.get_clock().now() - stamp).nanoseconds / 1e9
-        return (-self.max_future_offset_sec) <= age_sec <= self.max_input_msg_age_sec
-
     def _timer_cb(self):
-        primary_fresh = (
-            self._is_fresh(self.primary_seen_time, self.primary_stale_timeout)
-            and self._header_is_fresh(self.primary_msg)
-        )
-        secondary_fresh = (
-            self._is_fresh(self.secondary_seen_time, self.secondary_stale_timeout)
-            and self._header_is_fresh(self.secondary_msg)
-        )
+        primary_fresh = self._is_fresh(self.primary_seen_time, self.primary_stale_timeout)
+        secondary_fresh = self._is_fresh(self.secondary_seen_time, self.secondary_stale_timeout)
 
         if self.active_source in (None, 'primary'):
             if primary_fresh:
@@ -141,10 +130,20 @@ class ScanMuxSelector(Node):
                     self.active_source = None
                     self.get_logger().warn("Both scan sources stale; publishing paused.")
 
-        if self.active_source == 'primary' and primary_fresh and self.primary_msg is not None:
-            self.scan_pub.publish(self._prepared_scan(self.primary_msg))
-        elif self.active_source == 'secondary' and secondary_fresh and self.secondary_msg is not None:
-            self.scan_pub.publish(self._prepared_scan(self.secondary_msg))
+        if self.active_source == 'primary':
+            self._publish_if_new('primary', self.primary_msg, self.primary_seq, primary_fresh)
+        elif self.active_source == 'secondary':
+            self._publish_if_new('secondary', self.secondary_msg, self.secondary_seq, secondary_fresh)
+
+    def _publish_if_new(self, source: str, msg: LaserScan, seq: int, source_fresh: bool):
+        if not source_fresh or msg is None:
+            return
+        # Avoid flooding Nav2/SLAM with duplicate scans when upstream is unchanged.
+        if self.last_published_source == source and self.last_published_seq == seq:
+            return
+        self.scan_pub.publish(self._prepared_scan(msg))
+        self.last_published_source = source
+        self.last_published_seq = seq
 
     def _prepared_scan(self, msg: LaserScan) -> LaserScan:
         # Rebuild with fresh header timing/frame to keep downstream TF filters stable.

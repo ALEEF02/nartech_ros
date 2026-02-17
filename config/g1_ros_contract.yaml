@@ -32,6 +32,6 @@
     primary_reacquire_delay_sec: 1.0
     max_input_msg_age_sec: 0.8
     max_future_offset_sec: 0.25
-    scan_publish_rate_hz: 10.0
+    scan_publish_rate_hz: 5.0
 
-    pointcloud_target_frame: ""
+    pointcloud_target_frame: base_link
