@@ -4,6 +4,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
+from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 
 
@@ -42,10 +43,10 @@ class ScanMuxSelector(Node):
 
         self.scan_pub = self.create_publisher(LaserScan, self.output_topic, 10)
         self.primary_sub = self.create_subscription(
-            LaserScan, self.primary_topic, self._primary_cb, 10
+            LaserScan, self.primary_topic, self._primary_cb, qos_profile_sensor_data
         )
         self.secondary_sub = self.create_subscription(
-            LaserScan, self.secondary_topic, self._secondary_cb, 10
+            LaserScan, self.secondary_topic, self._secondary_cb, qos_profile_sensor_data
         )
 
         period = 1.0 / max(self.publish_rate_hz, 1.0)
@@ -114,7 +115,11 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

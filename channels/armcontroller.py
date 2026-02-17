@@ -49,6 +49,7 @@ else:
 class ArmController:
     def __init__(self, node=None, semantic_slam=None, navigation=None):
         ARM_STATE_SET("FREE")
+        self.available = True
         self.semantic_slam = semantic_slam
         self.navigation = navigation
         self.objectlabel = None
@@ -68,11 +69,11 @@ class ArmController:
         for client, name in [(self.ik_client, 'IK'), (self.plan_client, 'Planner')]:
             if not client.wait_for_service(timeout_sec=5.0):
                 self.node.get_logger().error(f"{name} service not available")
-                rclpy.shutdown()
+                self.available = False
                 return
         if not self.arm_client.wait_for_server(timeout_sec=5.0):
             self.node.get_logger().error("arm_controller action not available")
-            rclpy.shutdown()
+            self.available = False
             return
         # Cache latest /joint_states for slip detection
         self._latest_joint_state = None

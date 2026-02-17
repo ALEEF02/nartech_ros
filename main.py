@@ -7,12 +7,11 @@ from channels.objectdetection import ObjectDetector
 from channels.localization import Localization
 from channels.semanticslam import SemanticSLAM
 from channels.navigation import Navigation
-from rclpy.parameter import Parameter
 from rclpy.duration import Duration
 
 class MainNode(Node):
     def __init__(self):
-        super().__init__('NARTECH_node', parameter_overrides=[Parameter('use_sim_time', value=True)])
+        super().__init__('NARTECH_node')
         # Create a single TF2 buffer and listener to be shared across modules.
         self.tf_buffer = tf2_ros.Buffer(cache_time=Duration(seconds=30))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=True)
@@ -28,8 +27,12 @@ class MainNode(Node):
         if self.enable_arm_controller:
             from channels.armcontroller import ArmController
             self.arm_controller = ArmController(self, self.semantic_slam, self.navigation)
-            self.pick = self.arm_controller.pick
-            self.drop = self.arm_controller.drop
+            if getattr(self.arm_controller, 'available', True):
+                self.pick = self.arm_controller.pick
+                self.drop = self.arm_controller.drop
+            else:
+                self.arm_controller = None
+                self.get_logger().warn("ArmController unavailable; continuing without manipulation.")
         else:
             self.arm_controller = None
             self.get_logger().info("ArmController disabled by parameter: enable_arm_controller:=False")
@@ -43,7 +46,11 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            if rclpy.ok():
+                rclpy.shutdown()
+        except Exception:
+            pass
 
 if __name__ == '__main__':
     main()

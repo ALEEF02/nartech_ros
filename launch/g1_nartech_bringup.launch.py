@@ -56,7 +56,7 @@ def generate_launch_description():
         default_value=contract_path,
         description='ROS2 parameter file containing the G1 topic/frame contract.'
     )
-    declare_use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='True')
+    declare_use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='False')
     declare_start_scan_pipeline = DeclareLaunchArgument('start_scan_pipeline', default_value='True')
     declare_start_cmd_vel_adapter = DeclareLaunchArgument('start_cmd_vel_adapter', default_value='True')
     declare_start_nav2 = DeclareLaunchArgument('start_nav2', default_value='True')
@@ -154,7 +154,7 @@ def generate_launch_description():
             contract_file,
             {
                 'use_sim_time': use_sim_time,
-                'output_frame': camera_frame,
+                'output_frame': base_frame,
                 'scan_time': 0.1,
                 'range_min': 0.2,
                 'range_max': 12.0,
