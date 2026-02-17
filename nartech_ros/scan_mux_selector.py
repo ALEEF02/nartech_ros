@@ -5,7 +5,18 @@ import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
 from sensor_msgs.msg import LaserScan
+
+
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(value)
 
 
 class ScanMuxSelector(Node):
@@ -33,6 +44,18 @@ class ScanMuxSelector(Node):
         self.publish_rate_hz = float(self.declare_parameter(
             'scan_publish_rate_hz', 20.0
         ).value)
+        self.max_input_msg_age_sec = float(self.declare_parameter(
+            'max_input_msg_age_sec', 1.0
+        ).value)
+        self.max_future_offset_sec = float(self.declare_parameter(
+            'max_future_offset_sec', 0.25
+        ).value)
+        self.restamp_scan = _as_bool(self.declare_parameter(
+            'restamp_scan', True
+        ).value)
+        self.scan_output_frame = self.declare_parameter(
+            'scan_output_frame', ''
+        ).value
 
         self.primary_msg = None
         self.secondary_msg = None
@@ -53,7 +76,9 @@ class ScanMuxSelector(Node):
         self.timer = self.create_timer(period, self._timer_cb)
         self.get_logger().info(
             "Scan selector active: "
-            f"primary={self.primary_topic}, secondary={self.secondary_topic}, out={self.output_topic}"
+            f"primary={self.primary_topic}, secondary={self.secondary_topic}, out={self.output_topic}, "
+            f"restamp={self.restamp_scan}, frame_override='{self.scan_output_frame}', "
+            f"max_input_msg_age_sec={self.max_input_msg_age_sec}"
         )
 
     def _primary_cb(self, msg: LaserScan):
@@ -70,9 +95,25 @@ class ScanMuxSelector(Node):
         age = self.get_clock().now() - seen_time
         return age <= Duration(seconds=timeout_sec)
 
+    def _header_is_fresh(self, msg: LaserScan) -> bool:
+        if msg is None:
+            return False
+        stamp = Time.from_msg(msg.header.stamp)
+        # Some producers may leave stamp as zero; in that case use receive-time freshness only.
+        if stamp.nanoseconds == 0:
+            return True
+        age_sec = (self.get_clock().now() - stamp).nanoseconds / 1e9
+        return (-self.max_future_offset_sec) <= age_sec <= self.max_input_msg_age_sec
+
     def _timer_cb(self):
-        primary_fresh = self._is_fresh(self.primary_seen_time, self.primary_stale_timeout)
-        secondary_fresh = self._is_fresh(self.secondary_seen_time, self.secondary_stale_timeout)
+        primary_fresh = (
+            self._is_fresh(self.primary_seen_time, self.primary_stale_timeout)
+            and self._header_is_fresh(self.primary_msg)
+        )
+        secondary_fresh = (
+            self._is_fresh(self.secondary_seen_time, self.secondary_stale_timeout)
+            and self._header_is_fresh(self.secondary_msg)
+        )
 
         if self.active_source in (None, 'primary'):
             if primary_fresh:
@@ -100,10 +141,29 @@ class ScanMuxSelector(Node):
                     self.active_source = None
                     self.get_logger().warn("Both scan sources stale; publishing paused.")
 
-        if self.active_source == 'primary' and self.primary_msg is not None:
-            self.scan_pub.publish(self.primary_msg)
-        elif self.active_source == 'secondary' and self.secondary_msg is not None:
-            self.scan_pub.publish(self.secondary_msg)
+        if self.active_source == 'primary' and primary_fresh and self.primary_msg is not None:
+            self.scan_pub.publish(self._prepared_scan(self.primary_msg))
+        elif self.active_source == 'secondary' and secondary_fresh and self.secondary_msg is not None:
+            self.scan_pub.publish(self._prepared_scan(self.secondary_msg))
+
+    def _prepared_scan(self, msg: LaserScan) -> LaserScan:
+        # Rebuild with fresh header timing/frame to keep downstream TF filters stable.
+        out = LaserScan()
+        out.header = msg.header
+        if self.restamp_scan:
+            out.header.stamp = self.get_clock().now().to_msg()
+        if self.scan_output_frame:
+            out.header.frame_id = self.scan_output_frame
+        out.angle_min = msg.angle_min
+        out.angle_max = msg.angle_max
+        out.angle_increment = msg.angle_increment
+        out.time_increment = msg.time_increment
+        out.scan_time = msg.scan_time
+        out.range_min = msg.range_min
+        out.range_max = msg.range_max
+        out.ranges = msg.ranges
+        out.intensities = msg.intensities
+        return out
 
 
 def main(args=None):

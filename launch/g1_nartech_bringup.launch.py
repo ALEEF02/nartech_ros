@@ -9,7 +9,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -32,6 +32,7 @@ def generate_launch_description():
     slam = LaunchConfiguration('slam')
     start_nartech_node = LaunchConfiguration('start_nartech_node')
     enable_arm_controller = LaunchConfiguration('enable_arm_controller')
+    publish_base_footprint_tf = LaunchConfiguration('publish_base_footprint_tf')
     contract_file = LaunchConfiguration('contract_file')
     autostart = LaunchConfiguration('autostart')
     use_composition = LaunchConfiguration('use_composition')
@@ -48,6 +49,12 @@ def generate_launch_description():
     scan_primary_topic = LaunchConfiguration('scan_primary_topic')
     scan_secondary_topic = LaunchConfiguration('scan_secondary_topic')
     scan_output_topic = LaunchConfiguration('scan_output_topic')
+    scan_output_frame = LaunchConfiguration('scan_output_frame')
+    restamp_scan = LaunchConfiguration('restamp_scan')
+    scan_publish_rate_hz = LaunchConfiguration('scan_publish_rate_hz')
+    max_input_msg_age_sec = LaunchConfiguration('max_input_msg_age_sec')
+    max_future_offset_sec = LaunchConfiguration('max_future_offset_sec')
+    pointcloud_target_frame = LaunchConfiguration('pointcloud_target_frame')
     base_frame = LaunchConfiguration('base_frame')
     camera_frame = LaunchConfiguration('camera_frame')
 
@@ -63,6 +70,7 @@ def generate_launch_description():
     declare_slam = DeclareLaunchArgument('slam', default_value='True')
     declare_start_nartech_node = DeclareLaunchArgument('start_nartech_node', default_value='True')
     declare_enable_arm_controller = DeclareLaunchArgument('enable_arm_controller', default_value='False')
+    declare_publish_base_footprint_tf = DeclareLaunchArgument('publish_base_footprint_tf', default_value='True')
     declare_autostart = DeclareLaunchArgument('autostart', default_value='True')
     declare_use_composition = DeclareLaunchArgument('use_composition', default_value='True')
     declare_use_respawn = DeclareLaunchArgument('use_respawn', default_value='False')
@@ -105,6 +113,30 @@ def generate_launch_description():
         'scan_output_topic',
         default_value=str(contract.get('scan_output_topic', '/scan')),
     )
+    declare_scan_output_frame = DeclareLaunchArgument(
+        'scan_output_frame',
+        default_value=str(contract.get('scan_output_frame', 'base_link')),
+    )
+    declare_restamp_scan = DeclareLaunchArgument(
+        'restamp_scan',
+        default_value=str(contract.get('restamp_scan', True)).lower(),
+    )
+    declare_scan_publish_rate_hz = DeclareLaunchArgument(
+        'scan_publish_rate_hz',
+        default_value=str(contract.get('scan_publish_rate_hz', 10.0)),
+    )
+    declare_max_input_msg_age_sec = DeclareLaunchArgument(
+        'max_input_msg_age_sec',
+        default_value=str(contract.get('max_input_msg_age_sec', 0.8)),
+    )
+    declare_max_future_offset_sec = DeclareLaunchArgument(
+        'max_future_offset_sec',
+        default_value=str(contract.get('max_future_offset_sec', 0.25)),
+    )
+    declare_pointcloud_target_frame = DeclareLaunchArgument(
+        'pointcloud_target_frame',
+        default_value=str(contract.get('pointcloud_target_frame', '')),
+    )
     declare_base_frame = DeclareLaunchArgument(
         'base_frame',
         default_value=str(contract.get('base_frame', 'base_link')),
@@ -124,7 +156,7 @@ def generate_launch_description():
             contract_file,
             {
                 'use_sim_time': use_sim_time,
-                'target_frame': base_frame,
+                'target_frame': pointcloud_target_frame,
                 'transform_tolerance': 0.05,
                 'min_height': -0.8,
                 'max_height': 1.5,
@@ -181,6 +213,11 @@ def generate_launch_description():
                 'scan_primary_topic': scan_primary_topic,
                 'scan_secondary_topic': scan_secondary_topic,
                 'scan_output_topic': scan_output_topic,
+                'scan_output_frame': scan_output_frame,
+                'restamp_scan': restamp_scan,
+                'scan_publish_rate_hz': scan_publish_rate_hz,
+                'max_input_msg_age_sec': max_input_msg_age_sec,
+                'max_future_offset_sec': max_future_offset_sec,
             },
         ],
     )
@@ -192,6 +229,19 @@ def generate_launch_description():
         name='cmd_vel_adapter',
         output='screen',
         parameters=[contract_file, {'use_sim_time': use_sim_time}],
+    )
+
+    base_footprint_alias = Node(
+        condition=IfCondition(
+            PythonExpression(
+                [publish_base_footprint_tf, " and '", base_frame, "' != 'base_footprint'"]
+            )
+        ),
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_footprint_alias',
+        output='screen',
+        arguments=['0', '0', '0', '0', '0', '0', base_frame, 'base_footprint'],
     )
 
     nav2_bringup = IncludeLaunchDescription(
@@ -238,6 +288,7 @@ def generate_launch_description():
     ld.add_action(declare_slam)
     ld.add_action(declare_start_nartech_node)
     ld.add_action(declare_enable_arm_controller)
+    ld.add_action(declare_publish_base_footprint_tf)
     ld.add_action(declare_autostart)
     ld.add_action(declare_use_composition)
     ld.add_action(declare_use_respawn)
@@ -252,6 +303,12 @@ def generate_launch_description():
     ld.add_action(declare_scan_primary_topic)
     ld.add_action(declare_scan_secondary_topic)
     ld.add_action(declare_scan_output_topic)
+    ld.add_action(declare_scan_output_frame)
+    ld.add_action(declare_restamp_scan)
+    ld.add_action(declare_scan_publish_rate_hz)
+    ld.add_action(declare_max_input_msg_age_sec)
+    ld.add_action(declare_max_future_offset_sec)
+    ld.add_action(declare_pointcloud_target_frame)
     ld.add_action(declare_base_frame)
     ld.add_action(declare_camera_frame)
 
@@ -259,6 +316,7 @@ def generate_launch_description():
     ld.add_action(depth_to_scan)
     ld.add_action(scan_mux)
     ld.add_action(cmd_vel_adapter)
+    ld.add_action(base_footprint_alias)
     ld.add_action(nav2_bringup)
     ld.add_action(nartech_node)
     return ld

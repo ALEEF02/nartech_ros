@@ -25,7 +25,13 @@
     scan_primary_topic: /scan/livox
     scan_secondary_topic: /scan/depth
     scan_output_topic: /scan
+    scan_output_frame: base_link
+    restamp_scan: true
     primary_stale_timeout_sec: 0.6
     secondary_stale_timeout_sec: 1.0
     primary_reacquire_delay_sec: 1.0
-    scan_publish_rate_hz: 20.0
+    max_input_msg_age_sec: 0.8
+    max_future_offset_sec: 0.25
+    scan_publish_rate_hz: 10.0
+
+    pointcloud_target_frame: ""

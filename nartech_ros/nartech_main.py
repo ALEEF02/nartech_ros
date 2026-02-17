@@ -12,6 +12,16 @@ from channels.semanticslam import SemanticSLAM
 from channels.navigation import Navigation
 
 
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(value)
+
+
 class MainNode(Node):
     def __init__(self):
         super().__init__('NARTECH_node')
@@ -24,7 +34,7 @@ class MainNode(Node):
         self.semantic_slam = SemanticSLAM(self, self.tf_buffer, self.localization, self.object_detector)
         self.navigation = Navigation(self, self.semantic_slam, self.localization)
         self.start_navigation_to_coordinate = self.navigation.start_navigation_to_coordinate
-        self.enable_arm_controller = bool(self.declare_parameter('enable_arm_controller', True).value)
+        self.enable_arm_controller = _as_bool(self.declare_parameter('enable_arm_controller', True).value)
         if self.enable_arm_controller:
             from channels.armcontroller import ArmController
             self.arm_controller = ArmController(self, self.semantic_slam, self.navigation)
