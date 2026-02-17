@@ -1,0 +1,31 @@
+/**:
+  ros__parameters:
+    cmd_vel_in: /cmd_vel
+    cmd_vel_out: /unitree/cmd_vel
+    odom_topic: /odom
+    imu_topic: /imu
+    joint_states_topic: /joint_states
+
+    livox_points_topic: /livox/points
+    d435_color_topic: /intel/D435i/color
+    d435_depth_topic: /intel/D435i/depth
+    d435_camera_info_topic: /intel/D435i/camera_info
+
+    rgb_topic: /intel/D435i/color
+    depth_topic: /intel/D435i/depth
+    yolo_output_topic: /yolo_output/image
+    map_topic: /map
+    lowres_map_topic: /lowres_map
+
+    base_frame: base_link
+    odom_frame: odom
+    map_frame: map
+    camera_frame: d435i_depth_cam_optical
+
+    scan_primary_topic: /scan/livox
+    scan_secondary_topic: /scan/depth
+    scan_output_topic: /scan
+    primary_stale_timeout_sec: 0.6
+    secondary_stale_timeout_sec: 1.0
+    primary_reacquire_delay_sec: 1.0
+    scan_publish_rate_hz: 20.0

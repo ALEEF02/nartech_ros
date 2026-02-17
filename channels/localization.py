@@ -7,16 +7,23 @@ import tf2_ros
 from geometry_msgs.msg import Quaternion
 from rclpy.time import Time
 
+def _get_or_declare_parameter(node, name, default):
+    if node.has_parameter(name):
+        return node.get_parameter(name).value
+    return node.declare_parameter(name, default).value
+
 class Localization:
     def __init__(self, node, tf_buffer):
         self.node = node
         self.tf_buffer = tf_buffer
+        self.map_frame = _get_or_declare_parameter(self.node, 'map_frame', 'map')
+        self.base_frame = _get_or_declare_parameter(self.node, 'base_frame', 'base_link')
 
     def get_robot_lowres_position(self, original_origin, original_resolution, downsample_factor):
         try:
             trans = self.tf_buffer.lookup_transform(
-                'map',
-                'base_link',
+                self.map_frame,
+                self.base_frame,
                 Time(),
                 timeout=Duration(seconds=1.0)
             )

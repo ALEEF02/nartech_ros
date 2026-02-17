@@ -16,6 +16,11 @@ from geometry_msgs.msg import Twist
 from rclpy.task import Future
 from rclpy.time import Time
 
+def _get_or_declare_parameter(node, name, default):
+    if node.has_parameter(name):
+        return node.get_parameter(name).value
+    return node.declare_parameter(name, default).value
+
 # Approach and grab params
 GOAL_TARGET_DISTANCE = 0.38 #0.37
 yaw_tol, depth_tol = 0.05, 0.02
@@ -53,6 +58,7 @@ class ArmController:
         else:
             self.own_node = None
             self.node = node
+        self.base_frame = _get_or_declare_parameter(self.node, 'base_frame', 'base_link')
         self.picking = False
         self.cmd_pub = self.node.create_publisher(Twist, '/cmd_vel', 10)
         self.ik_client = self.node.create_client(GetPositionIK, 'compute_ik')
@@ -291,7 +297,7 @@ class ArmController:
             # Step 1: Target pose:
             self.node.get_logger().info('arm_controller: STEP 1')
             pose = PoseStamped()
-            pose.header.frame_id = 'base_link'
+            pose.header.frame_id = self.base_frame
             pose.pose.position.x = x
             pose.pose.position.y = y
             pose.pose.position.z = z

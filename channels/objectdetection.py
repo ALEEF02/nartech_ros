@@ -1,5 +1,6 @@
 # yolo.py
 import time
+import os
 import numpy as np
 import cv2
 import threading
@@ -26,21 +27,38 @@ class ObjectDetector:
         self.horizontal_fov = 1.25  # in radians
         self.fx = self.image_width / (2 * np.tan(self.horizontal_fov / 2))
         self.fy = self.image_height / (2 * np.tan(self.horizontal_fov / 2))
-        # Load YOLO model and classes
-        self.net = cv2.dnn.readNet('./channels/yolov4-tiny.weights', './channels/yolov4-tiny.cfg')
-        self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-        self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-        with open('./channels/coco.names', 'r') as f:
-            self.classes = [line.strip() for line in f.readlines()]
+        # Topic and frame parameters are configurable for different robot stacks.
+        self.rgb_topic = self.node.declare_parameter('rgb_topic', '/rgbd_camera/image').value
+        self.depth_topic = self.node.declare_parameter('depth_topic', '/rgbd_camera/depth_image').value
+        self.yolo_output_topic = self.node.declare_parameter('yolo_output_topic', '/yolo_output/image').value
+        # Load YOLO model and classes from this module directory.
+        module_dir = os.path.dirname(os.path.abspath(__file__))
+        weights_path = os.path.join(module_dir, 'yolov4-tiny.weights')
+        cfg_path = os.path.join(module_dir, 'yolov4-tiny.cfg')
+        classes_path = os.path.join(module_dir, 'coco.names')
+        self.net = None
+        self.classes = []
+        self.detector_ready = False
+        if os.path.exists(weights_path) and os.path.exists(cfg_path) and os.path.exists(classes_path):
+            self.net = cv2.dnn.readNet(weights_path, cfg_path)
+            self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+            self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            with open(classes_path, 'r') as f:
+                self.classes = [line.strip() for line in f.readlines()]
+            self.detector_ready = True
+        else:
+            self.node.get_logger().warn(
+                "YOLO model files not found; object detection is disabled."
+            )
         # Create subscribers and publisher using a QoS profile that keeps only the latest message.
         qos_profile_yolo = rclpy.qos.QoSProfile(depth=1)
         qos_profile_yolo.history = rclpy.qos.QoSHistoryPolicy.KEEP_LAST
         qos_profile_yolo.durability = rclpy.qos.QoSDurabilityPolicy.VOLATILE
         self.image_sub = self.node.create_subscription(
-            Image, '/rgbd_camera/image', self.image_callback, qos_profile_yolo)
+            Image, self.rgb_topic, self.image_callback, qos_profile_yolo)
         self.depth_sub = self.node.create_subscription(
-            Image, '/rgbd_camera/depth_image', self.depth_callback, qos_profile_yolo)
-        self.image_pub = self.node.create_publisher(Image, '/yolo_output/image', qos_profile_yolo)
+            Image, self.depth_topic, self.depth_callback, qos_profile_yolo)
+        self.image_pub = self.node.create_publisher(Image, self.yolo_output_topic, qos_profile_yolo)
 
     def image_callback(self, msg):
         with self.lock:
@@ -49,6 +67,10 @@ class ObjectDetector:
             if self.processing:
                 return
             self.processing = True
+        if not self.detector_ready:
+            with self.lock:
+                self.processing = False
+            return
         self.last_image_stamp = Time.from_msg(msg.header.stamp)
         start_time = time.time()
         self.node.get_logger().info("Processing image for object detection")

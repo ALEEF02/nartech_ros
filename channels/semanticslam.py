@@ -1,6 +1,7 @@
 # semanticslam.py
 import tf2_geometry_msgs
 import time
+import os
 import numpy as np
 import rclpy
 from nav_msgs.msg import OccupancyGrid
@@ -14,12 +15,27 @@ import math
 # Assume mettabridge provides space_tick (and any other helper functions/constants)
 from mettabridge import space_tick
 
+def _get_or_declare_parameter(node, name, default):
+    if node.has_parameter(name):
+        return node.get_parameter(name).value
+    return node.declare_parameter(name, default).value
+
 class SemanticSLAM:
     def __init__(self, node, tf_buffer, localization, object_detector):
         self.node = node
         self.tf_buffer = tf_buffer
         self.localization = localization
         self.object_detector = object_detector
+        self.map_frame = _get_or_declare_parameter(self.node, 'map_frame', 'map')
+        self.base_frame = _get_or_declare_parameter(self.node, 'base_frame', 'base_link')
+        self.camera_frame = _get_or_declare_parameter(self.node, 'camera_frame', 'oakd_left_camera_frame')
+        self.map_topic = _get_or_declare_parameter(self.node, 'map_topic', '/map')
+        self.lowres_map_topic = _get_or_declare_parameter(self.node, 'lowres_map_topic', '/lowres_map')
+        self.grid_dump_path = _get_or_declare_parameter(
+            self.node,
+            'grid_dump_path',
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grid.txt')
+        )
         # Mapping from object category to occupancy value
         self.M = { "wall": 100, "robot": 127, "chair": -120, "bench": -126, "table": -126,
                    "bottle": -125, "cup": -125, "can": -125, "person": -124,
@@ -27,15 +43,15 @@ class SemanticSLAM:
         self.previous_detections_persistence = 100000.0  # seconds
         self.previous_detections = {}
         # Downsampling parameters
-        self.downsample_factor = 28
+        self.downsample_factor = int(_get_or_declare_parameter(self.node, 'downsample_factor', 28))
         # Set up a QoS profile for map topics.
         qos_profile_map = QoSProfile(depth=1)
         qos_profile_map.history = QoSHistoryPolicy.KEEP_LAST
         qos_profile_map.durability = QoSDurabilityPolicy.TRANSIENT_LOCAL
         self.map_sub = self.node.create_subscription(
-            OccupancyGrid, '/map', self.occ_grid_callback, qos_profile_map)
+            OccupancyGrid, self.map_topic, self.occ_grid_callback, qos_profile_map)
         self.lowres_grid_pub = self.node.create_publisher(
-            OccupancyGrid, '/lowres_map', qos_profile_map)
+            OccupancyGrid, self.lowres_map_topic, qos_profile_map)
         # Timer to periodically process and publish the low-res grid.
         self.timer = self.node.create_timer(2.0, self.build_grid_periodic)
         # State variables used during grid processing.
@@ -121,7 +137,7 @@ class SemanticSLAM:
                             self.node.get_logger().info(f"DEPTH DEBUG: {depth_value}")
                             # Create a point in camera coordinates.
                             camera_point = PointStamped(
-                                header=Header(stamp=Time().to_msg(), frame_id='oakd_left_camera_frame'),
+                                header=Header(stamp=Time().to_msg(), frame_id=self.camera_frame),
                                 point=Point(
                                     x=depth_value,
                                     y=-(center_x - (self.object_detector.width / 2)) * depth_value / self.object_detector.fx,
@@ -131,9 +147,9 @@ class SemanticSLAM:
                             try:
                                 # Transform the point into the map frame.
                                 camera_point.header.stamp = Time().to_msg()
-                                transformed_point_map = self.tf_buffer.transform(camera_point, 'map', timeout=Duration(seconds=1.0))
+                                transformed_point_map = self.tf_buffer.transform(camera_point, self.map_frame, timeout=Duration(seconds=1.0))
                                 camera_point.header.stamp = Time().to_msg()
-                                transformed_point_base_link = self.tf_buffer.transform(camera_point, 'base_link', timeout=Duration(seconds=1.0))
+                                transformed_point_base_link = self.tf_buffer.transform(camera_point, self.base_frame, timeout=Duration(seconds=1.0))
                                 object_grid_x, object_grid_y = self.get_lowres_position(
                                     transformed_point_map.point.x, transformed_point_map.point.y,
                                     original_origin, self.new_resolution
@@ -199,7 +215,7 @@ class SemanticSLAM:
         from nav_msgs.msg import OccupancyGrid
         lowres_msg = OccupancyGrid()
         lowres_msg.header = original_msg.header
-        lowres_msg.header.frame_id = 'map'
+        lowres_msg.header.frame_id = self.map_frame
         lowres_msg.header.stamp = self.node.get_clock().now().to_msg()
         lowres_msg.info.resolution = self.new_resolution
         lowres_msg.info.width = self.new_width
@@ -207,13 +223,14 @@ class SemanticSLAM:
         lowres_msg.info.origin = original_msg.info.origin
         lowres_msg.data = self.low_res_grid
         self.origin = original_msg.info.origin
-        try:
-            with open("/home/nartech/nartech_ws/src/nartech_ros/channels/grid.txt","w") as f:
-                f.write(str(self.new_width) + "\n" +
-                        str(self.new_height) + "\n" +
-                        str(self.robot_lowres_x) + "\n" +
-                        str(self.robot_lowres_y) + "\n" +
-                        str(self.low_res_grid))
-        except Exception as e:
-            self.node.get_logger().error(f"Error writing grid file: {e}")
+        if self.grid_dump_path:
+            try:
+                with open(self.grid_dump_path, "w") as f:
+                    f.write(str(self.new_width) + "\n" +
+                            str(self.new_height) + "\n" +
+                            str(self.robot_lowres_x) + "\n" +
+                            str(self.robot_lowres_y) + "\n" +
+                            str(self.low_res_grid))
+            except Exception as e:
+                self.node.get_logger().error(f"Error writing grid file: {e}")
         self.lowres_grid_pub.publish(lowres_msg)
