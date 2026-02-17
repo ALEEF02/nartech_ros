@@ -56,18 +56,18 @@ def generate_launch_description():
         default_value=contract_path,
         description='ROS2 parameter file containing the G1 topic/frame contract.'
     )
-    declare_use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='true')
-    declare_start_scan_pipeline = DeclareLaunchArgument('start_scan_pipeline', default_value='true')
-    declare_start_cmd_vel_adapter = DeclareLaunchArgument('start_cmd_vel_adapter', default_value='true')
-    declare_start_nav2 = DeclareLaunchArgument('start_nav2', default_value='true')
-    declare_slam = DeclareLaunchArgument('slam', default_value='true')
-    declare_start_nartech_node = DeclareLaunchArgument('start_nartech_node', default_value='true')
-    declare_enable_arm_controller = DeclareLaunchArgument('enable_arm_controller', default_value='false')
-    declare_autostart = DeclareLaunchArgument('autostart', default_value='true')
+    declare_use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='True')
+    declare_start_scan_pipeline = DeclareLaunchArgument('start_scan_pipeline', default_value='True')
+    declare_start_cmd_vel_adapter = DeclareLaunchArgument('start_cmd_vel_adapter', default_value='True')
+    declare_start_nav2 = DeclareLaunchArgument('start_nav2', default_value='True')
+    declare_slam = DeclareLaunchArgument('slam', default_value='True')
+    declare_start_nartech_node = DeclareLaunchArgument('start_nartech_node', default_value='True')
+    declare_enable_arm_controller = DeclareLaunchArgument('enable_arm_controller', default_value='False')
+    declare_autostart = DeclareLaunchArgument('autostart', default_value='True')
     declare_use_composition = DeclareLaunchArgument('use_composition', default_value='True')
     declare_use_respawn = DeclareLaunchArgument('use_respawn', default_value='False')
     declare_namespace = DeclareLaunchArgument('namespace', default_value='')
-    declare_use_namespace = DeclareLaunchArgument('use_namespace', default_value='false')
+    declare_use_namespace = DeclareLaunchArgument('use_namespace', default_value='False')
     declare_map = DeclareLaunchArgument(
         'map',
         default_value=os.path.join(nav2_share, 'maps', 'turtlebot3_world.yaml'),
