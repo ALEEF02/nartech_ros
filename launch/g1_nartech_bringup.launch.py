@@ -55,6 +55,7 @@ def generate_launch_description():
     max_input_msg_age_sec = LaunchConfiguration('max_input_msg_age_sec')
     max_future_offset_sec = LaunchConfiguration('max_future_offset_sec')
     pointcloud_target_frame = LaunchConfiguration('pointcloud_target_frame')
+    pointcloud_transform_tolerance_sec = LaunchConfiguration('pointcloud_transform_tolerance_sec')
     base_frame = LaunchConfiguration('base_frame')
     camera_frame = LaunchConfiguration('camera_frame')
 
@@ -137,6 +138,10 @@ def generate_launch_description():
         'pointcloud_target_frame',
         default_value=str(contract.get('pointcloud_target_frame', '')),
     )
+    declare_pointcloud_transform_tolerance_sec = DeclareLaunchArgument(
+        'pointcloud_transform_tolerance_sec',
+        default_value=str(contract.get('pointcloud_transform_tolerance_sec', 0.5)),
+    )
     declare_base_frame = DeclareLaunchArgument(
         'base_frame',
         default_value=str(contract.get('base_frame', 'base_link')),
@@ -157,14 +162,14 @@ def generate_launch_description():
             {
                 'use_sim_time': use_sim_time,
                 'target_frame': pointcloud_target_frame,
-                'transform_tolerance': 0.05,
-                'min_height': 0.1,
+                'transform_tolerance': pointcloud_transform_tolerance_sec,
+                'min_height': 0.2,
                 'max_height': 5.0,
                 'angle_min': -3.14159,
                 'angle_max': 3.14159,
                 'angle_increment': 0.0087,
-                'scan_time': 0.1,
-                'range_min': 0.1,
+                'scan_time': 1.0,
+                'range_min': 0.3,
                 'range_max': 30.0,
                 'use_inf': True,
                 'inf_epsilon': 1.0,
@@ -187,10 +192,10 @@ def generate_launch_description():
             {
                 'use_sim_time': use_sim_time,
                 'output_frame': base_frame,
-                'scan_time': 0.1,
-                'range_min': 0.5,
-                'range_max': 2.9,
-                'scan_height': 10,
+                'scan_time': 1.0,
+                'range_min': 0.6,
+                'range_max': 1.1,
+                'scan_height': 320,
             },
         ],
         remappings=[
@@ -309,6 +314,7 @@ def generate_launch_description():
     ld.add_action(declare_max_input_msg_age_sec)
     ld.add_action(declare_max_future_offset_sec)
     ld.add_action(declare_pointcloud_target_frame)
+    ld.add_action(declare_pointcloud_transform_tolerance_sec)
     ld.add_action(declare_base_frame)
     ld.add_action(declare_camera_frame)
 

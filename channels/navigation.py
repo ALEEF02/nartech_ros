@@ -22,6 +22,13 @@ class Navigation:
         self.navigation_goal = None
         self.navigation_retries = 0
         self.goal_handle = None
+        self.max_navigation_retries = int(
+            self.node.declare_parameter('max_navigation_retries', 3).value
+        )
+        self.navigation_retry_delay_sec = float(
+            self.node.declare_parameter('navigation_retry_delay_sec', 0.5).value
+        )
+        self._retry_timer = None
         qos_profile_str = rclpy.qos.QoSProfile(depth=1)
         qos_profile_str.history = rclpy.qos.QoSHistoryPolicy.KEEP_LAST
         qos_profile_str.durability = rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL
@@ -51,6 +58,9 @@ class Navigation:
 
     def start_navigation_to_coordinate(self, target_cell, objectlabel, command=""):
         self.state = NAV_STATE_SET(NAV_STATE_BUSY)
+        if self._retry_timer:
+            self._retry_timer.cancel()
+            self._retry_timer = None
         #retrieve current (potentially updated) position estimate
         self.objectlabel = objectlabel
         self.target_point = None
@@ -153,15 +163,36 @@ class Navigation:
     def _result_callback(self, future):
         result = future.result()
         nav_state = NAV_STATE_SUCCESS
+        self.goal_handle = None
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             self.node.get_logger().info("Goal succeeded!")
             #if self.objectlabel: #orient to object
             #    self.start_navigation_to_coordinate(self.navigation_goal[0], self.objectlabel, command="")
         else:
-            if self.navigation_retries < 10: # and not self.mettacontrolled:
-                self.node.get_logger().info("Goal failed with status: {0}, retrying".format(result.status))
+            if self.navigation_retries < self.max_navigation_retries:
                 self.navigation_retries += 1
-                self.send_navigation_goal(self.navigation_goal[0], self.navigation_goal[1])
+                retry_delay = self.navigation_retry_delay_sec * self.navigation_retries
+                self.node.get_logger().info(
+                    "Goal failed with status: {0}, retrying {1}/{2} after {3:.2f}s".format(
+                        result.status,
+                        self.navigation_retries,
+                        self.max_navigation_retries,
+                        retry_delay,
+                    )
+                )
+                if self._retry_timer:
+                    self._retry_timer.cancel()
+                    self._retry_timer = None
+
+                def _retry_cb():
+                    if self._retry_timer:
+                        self._retry_timer.cancel()
+                        self._retry_timer = None
+                    if self.navigation_goal is None:
+                        return
+                    self.send_navigation_goal(self.navigation_goal[0], self.navigation_goal[1])
+
+                self._retry_timer = self.node.create_timer(retry_delay, _retry_cb)
                 return
             else:
                 if "," in self.navigation_goal[1]:
@@ -172,8 +203,10 @@ class Navigation:
                 else:
                     nav_state = NAV_STATE_FAIL
                     self.node.get_logger().info("Goal failed with status: {0}, exhausted retries and shortenings".format(result.status))
+        if self._retry_timer:
+            self._retry_timer.cancel()
+            self._retry_timer = None
         self.publish_done(force_mapupdate=True)
-        self.goal_handle = None
         if self._pending_cancel:
             self.node.get_logger().info("Suppressing NAV_STATE update due to pending cancel (e.g. from slip)")
             self._pending_cancel = False  # clear it now
@@ -221,7 +254,10 @@ class Navigation:
 
     def cancel_goals(self):
         self._pending_cancel = True
-        self.navigation_retries = 10
+        self.navigation_retries = self.max_navigation_retries
+        if self._retry_timer:
+            self._retry_timer.cancel()
+            self._retry_timer = None
          # start “brake” timer – 20 Hz zero /cmd_vel
         self._brake_timer = self.node.create_timer(0.05, lambda: self.cmd_pub.publish(Twist()))
         if not self.action_client.server_is_ready():

@@ -56,6 +56,9 @@ class ScanMuxSelector(Node):
         self.scan_output_frame = self.declare_parameter(
             'scan_output_frame', ''
         ).value
+        self.publish_new_only = _as_bool(self.declare_parameter(
+            'scan_publish_new_only', False
+        ).value)
 
         self.primary_msg = None
         self.secondary_msg = None
@@ -81,7 +84,8 @@ class ScanMuxSelector(Node):
         self.get_logger().info(
             "Scan selector active: "
             f"primary={self.primary_topic}, secondary={self.secondary_topic}, out={self.output_topic}, "
-            f"restamp={self.restamp_scan}, frame_override='{self.scan_output_frame}'"
+            f"restamp={self.restamp_scan}, frame_override='{self.scan_output_frame}', "
+            f"publish_new_only={self.publish_new_only}"
         )
 
     def _primary_cb(self, msg: LaserScan):
@@ -138,8 +142,10 @@ class ScanMuxSelector(Node):
     def _publish_if_new(self, source: str, msg: LaserScan, seq: int, source_fresh: bool):
         if not source_fresh or msg is None:
             return
-        # Avoid flooding Nav2/SLAM with duplicate scans when upstream is unchanged.
-        if self.last_published_source == source and self.last_published_seq == seq:
+        # Optional: only publish when upstream produced a new message.
+        # For slow sensors, keep this disabled so downstream consumers still receive
+        # timely scans at the configured publish rate.
+        if self.publish_new_only and self.last_published_source == source and self.last_published_seq == seq:
             return
         self.scan_pub.publish(self._prepared_scan(msg))
         self.last_published_source = source
