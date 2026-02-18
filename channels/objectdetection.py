@@ -44,11 +44,37 @@ class ObjectDetector:
         self.fx = self.image_width / (2 * np.tan(self.horizontal_fov / 2))
         self.fy = self.image_height / (2 * np.tan(self.horizontal_fov / 2))
 
-        self.rgb_topic = self.node.declare_parameter('rgb_topic', '/rgbd_camera/image').value
-        self.depth_topic = self.node.declare_parameter('depth_topic', '/rgbd_camera/depth_image').value
+        # Topic resolution order:
+        # 1) explicit rgb_topic/depth_topic (if provided)
+        # 2) d435_color_topic/d435_depth_topic contract parameters
+        # 3) D435 defaults used by our MuJoCo bridge
+        d435_color_default = str(
+            self.node.declare_parameter('d435_color_topic', '/intel/D435i/color').value
+        )
+        d435_depth_default = str(
+            self.node.declare_parameter('d435_depth_topic', '/intel/D435i/depth').value
+        )
+
+        self.rgb_topic = str(
+            self.node.declare_parameter('rgb_topic', d435_color_default).value
+        )
+        self.depth_topic = str(
+            self.node.declare_parameter('depth_topic', d435_depth_default).value
+        )
+
+        # Keep backward compatibility with older configs while preferring D435 topics.
+        if self.rgb_topic == '/rgbd_camera/image':
+            self.rgb_topic = d435_color_default
+        if self.depth_topic == '/rgbd_camera/depth_image':
+            self.depth_topic = d435_depth_default
+
         self.yolo_output_topic = self.node.declare_parameter('yolo_output_topic', '/yolo_output/image').value
         self.detector_min_period_sec = float(
             self.node.declare_parameter('detector_min_period_sec', 0.25).value
+        )
+
+        self.node.get_logger().info(
+            f"ObjectDetector topics: rgb={self.rgb_topic}, depth={self.depth_topic}, out={self.yolo_output_topic}"
         )
 
         self.last_detection_wall_time = 0.0
