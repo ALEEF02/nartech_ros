@@ -28,7 +28,15 @@ class SemanticSLAM:
         self.object_detector = object_detector
         self.map_frame = _get_or_declare_parameter(self.node, 'map_frame', 'map')
         self.base_frame = _get_or_declare_parameter(self.node, 'base_frame', 'base_link')
-        self.camera_frame = _get_or_declare_parameter(self.node, 'camera_frame', 'oakd_left_camera_frame')
+        self.camera_frame = _get_or_declare_parameter(
+            self.node, 'camera_frame', 'd435i_depth_cam_optical'
+        )
+        # Backward compatibility with old Turtlebot/OAK-D configs.
+        if self.camera_frame == 'oakd_left_camera_frame':
+            self.node.get_logger().warn(
+                "camera_frame=oakd_left_camera_frame is deprecated; using d435i_depth_cam_optical."
+            )
+            self.camera_frame = 'd435i_depth_cam_optical'
         self.map_topic = _get_or_declare_parameter(self.node, 'map_topic', '/map')
         self.lowres_map_topic = _get_or_declare_parameter(self.node, 'lowres_map_topic', '/lowres_map')
         self.grid_dump_path = _get_or_declare_parameter(
