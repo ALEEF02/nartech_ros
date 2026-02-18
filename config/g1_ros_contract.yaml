@@ -32,7 +32,7 @@
     # Sensor cadence in this stack:
     # - Livox scan updates ~every 5s (primary)
     # - D435 depth scan updates ~every 2s (secondary)
-    primary_stale_timeout_sec: 2.5
+    primary_stale_timeout_sec: 5.0
     secondary_stale_timeout_sec: 1.5
     primary_reacquire_delay_sec: 1.5
     max_input_msg_age_sec: 7.0

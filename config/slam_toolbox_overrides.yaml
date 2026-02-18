@@ -1,0 +1,15 @@
+slam_toolbox:
+  ros__parameters:
+    scan_topic: /scan/livox
+
+/slam_toolbox:
+  ros__parameters:
+    scan_topic: /scan/livox
+
+sync_slam_toolbox_node:
+  ros__parameters:
+    scan_topic: /scan/livox
+
+/sync_slam_toolbox_node:
+  ros__parameters:
+    scan_topic: /scan/livox

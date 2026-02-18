@@ -6,11 +6,11 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParametersFromFile
 
 
 def _load_contract_defaults(contract_path):
@@ -41,6 +41,7 @@ def generate_launch_description():
     use_namespace = LaunchConfiguration('use_namespace')
     map_yaml = LaunchConfiguration('map')
     nav2_params_file = LaunchConfiguration('nav2_params_file')
+    slam_scan_mode = LaunchConfiguration('slam_scan_mode')
 
     livox_points_topic = LaunchConfiguration('livox_points_topic')
     d435_color_topic = LaunchConfiguration('d435_color_topic')
@@ -84,6 +85,12 @@ def generate_launch_description():
     declare_nav2_params_file = DeclareLaunchArgument(
         'nav2_params_file',
         default_value=os.path.join(nav2_share, 'params', 'nav2_params.yaml'),
+    )
+    declare_slam_scan_mode = DeclareLaunchArgument(
+        'slam_scan_mode',
+        default_value='lidar_only',
+        description="SLAM scan source mode: 'lidar_only' uses /scan/livox for slam_toolbox, "
+                    "'mux' uses the default /scan pipeline."
     )
 
     declare_livox_points_topic = DeclareLaunchArgument(
@@ -264,6 +271,37 @@ def generate_launch_description():
             'use_respawn': use_respawn,
         }.items(),
     )
+    slam_toolbox_overrides = SetParametersFromFile(
+        os.path.join(nartech_share, 'config', 'slam_toolbox_overrides.yaml')
+    )
+    nav2_with_slam_overrides = GroupAction(
+        condition=IfCondition(
+            PythonExpression(["'", slam_scan_mode, "' == 'lidar_only'"])
+        ),
+        actions=[
+            slam_toolbox_overrides,
+            nav2_bringup,
+        ]
+    )
+    nav2_without_slam_overrides = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(os.path.join(nav2_share, 'launch', 'bringup_launch.py')),
+        condition=IfCondition(
+            PythonExpression(
+                [start_nav2, " and '", slam_scan_mode, "' == 'mux'"]
+            )
+        ),
+        launch_arguments={
+            'namespace': namespace,
+            'use_namespace': use_namespace,
+            'slam': slam,
+            'map': map_yaml,
+            'use_sim_time': use_sim_time,
+            'params_file': nav2_params_file,
+            'autostart': autostart,
+            'use_composition': use_composition,
+            'use_respawn': use_respawn,
+        }.items(),
+    )
 
     nartech_node = Node(
         condition=IfCondition(start_nartech_node),
@@ -301,6 +339,7 @@ def generate_launch_description():
     ld.add_action(declare_use_namespace)
     ld.add_action(declare_map)
     ld.add_action(declare_nav2_params_file)
+    ld.add_action(declare_slam_scan_mode)
     ld.add_action(declare_livox_points_topic)
     ld.add_action(declare_d435_color_topic)
     ld.add_action(declare_d435_depth_topic)
@@ -323,6 +362,7 @@ def generate_launch_description():
     ld.add_action(scan_mux)
     ld.add_action(cmd_vel_adapter)
     ld.add_action(base_footprint_alias)
-    ld.add_action(nav2_bringup)
+    ld.add_action(nav2_with_slam_overrides)
+    ld.add_action(nav2_without_slam_overrides)
     ld.add_action(nartech_node)
     return ld

@@ -12,6 +12,7 @@ PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
 LIVOX_TOPIC="${LIVOX_TOPIC:-/livox/points}"
 DEPTH_TOPIC="${DEPTH_TOPIC:-/intel/D435i/depth}"
 CAMERA_INFO_TOPIC="${CAMERA_INFO_TOPIC:-/intel/D435i/camera_info}"
+SLAM_SCAN_MODE="${SLAM_SCAN_MODE:-lidar_only}"
 
 wait_for_topic() {
   local topic="$1"
@@ -66,6 +67,7 @@ ros2 launch nartech_ros g1_nartech_bringup.launch.py \
   start_nartech_node:="${START_NARTECH_NODE}" \
   enable_arm_controller:=False \
   slam:=True \
+  slam_scan_mode:="${SLAM_SCAN_MODE}" \
   autostart:=True \
   use_composition:=True \
   use_respawn:=False \
