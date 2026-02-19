@@ -12,5 +12,5 @@ if [[ ! -d "${UNITREE_ROOT}" ]]; then
 fi
 
 cd "${UNITREE_ROOT}"
-python3 deploy/deploy_mujoco/deploy_mujoco.py g1.yaml
+python3 deploy/deploy_mujoco/deploy_mujoco.py g1.yaml --headless --mapping-mode
 

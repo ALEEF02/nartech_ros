@@ -1,15 +1,20 @@
 slam_toolbox:
   ros__parameters:
-    scan_topic: /scan/livox
+    # Use muxed/resampled scan stream; raw /scan/livox can be too sparse (~0.8 Hz).
+    scan_topic: /scan
+    transform_publish_period: 0.02
 
 /slam_toolbox:
   ros__parameters:
-    scan_topic: /scan/livox
+    scan_topic: /scan
+    transform_publish_period: 0.02
 
 sync_slam_toolbox_node:
   ros__parameters:
-    scan_topic: /scan/livox
+    scan_topic: /scan
+    transform_publish_period: 0.02
 
 /sync_slam_toolbox_node:
   ros__parameters:
-    scan_topic: /scan/livox
+    scan_topic: /scan
+    transform_publish_period: 0.02

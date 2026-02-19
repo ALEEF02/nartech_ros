@@ -89,8 +89,8 @@ def generate_launch_description():
     declare_slam_scan_mode = DeclareLaunchArgument(
         'slam_scan_mode',
         default_value='lidar_only',
-        description="SLAM scan source mode: 'lidar_only' uses /scan/livox for slam_toolbox, "
-                    "'mux' uses the default /scan pipeline."
+        description="SLAM scan source mode: 'lidar_only' applies local slam_toolbox overrides "
+                    "(including scan_topic=/scan), 'mux' uses Nav2 defaults."
     )
 
     declare_livox_points_topic = DeclareLaunchArgument(
