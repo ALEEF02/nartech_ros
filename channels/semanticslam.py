@@ -45,7 +45,7 @@ class SemanticSLAM:
             os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grid.txt')
         )
         # Mapping from object category to occupancy value
-        self.M = { "wall": 100, "robot": 127, "chair": -120, "bench": -126, "table": -126,
+        self.M = { "wall": 100, "robot": 127, "chair": -120, "bench": -126, "dining_table": -126,
                    "bottle": -125, "cup": -125, "can": -125, "person": -124,
                    "fridge": -123, "sink": -122, "stove": -121, "frisbee": -123, "unknown": -1 }
         self.previous_detections_persistence = 100000.0  # seconds
@@ -133,16 +133,17 @@ class SemanticSLAM:
                     if confidence > self.object_detector.minconf:  # Confidence threshold for semantic mapping
                         center_x = int(detection[0] * self.object_detector.width)
                         center_y = int(detection[1] * self.object_detector.height)
+                        category = self.object_detector.classes[class_id]
                         if depth_image is None:
-                            self.node.get_logger().warn("Got detections but no depth image")
+                            self.node.get_logger().warn(f"Got detection ({category}) but no depth image")
                             continue
                         depth_value = depth_image[center_y, center_x]
-                        category = self.object_detector.classes[class_id]
                         if category == "sports ball" or category == "orange":
                             category = "frisbee"
                             print("SEMANTIC SLAM: CATEGORY REMAP")
-                        if depth_value > 0 and category in self.M:
-                            self.node.get_logger().info(f"DEPTH DEBUG: {depth_value}")
+                        if depth_value <= 0: continue
+                        if category in self.M:
+                            self.node.get_logger().info(f"Detecting object ({category}) {depth_value}m away")
                             # Create a point in camera coordinates.
                             camera_point = PointStamped(
                                 header=Header(stamp=Time().to_msg(), frame_id=self.camera_frame),
@@ -162,18 +163,20 @@ class SemanticSLAM:
                                     transformed_point_map.point.x, transformed_point_map.point.y,
                                     original_origin, self.new_resolution
                                 )
-                                if category in self.M and 0 <= object_grid_x < self.new_width and 0 <= object_grid_y < self.new_height:
+                                if 0 <= object_grid_x < self.new_width and 0 <= object_grid_y < self.new_height:
                                     obj_idx = object_grid_y * self.new_width + object_grid_x
                                     self.previous_detections[category] = (time.time(), object_grid_x, object_grid_y,
                                                                           original_origin.position.x, original_origin.position.y, 
                                                                           transformed_point_map, transformed_point_base_link, 
                                                                           (detection[0], detection[1], depth_value))
                                     self.low_res_grid[obj_idx] = self.M[category]
-                                    self.node.get_logger().info(f"Marked detected object at ({object_grid_x}, {object_grid_y}) in grid.")
+                                    self.node.get_logger().info(f"Marked detected object ({category}) at ({object_grid_x}, {object_grid_y}) in grid.")
                                 else:
-                                    self.node.get_logger().warn("Detected object position is out of bounds in the downsampled map.")
+                                    self.node.get_logger().warn(f"Detected object ({category}) position is out of bounds in the downsampled map.")
                             except Exception as e:
-                                self.node.get_logger().error(f"Transform exception: {str(e)}")
+                                self.node.get_logger().error(f"SemanticSLAM Transform exception: {str(e)}")
+                        else:
+                            self.node.get_logger().info(f"Detected object ({category}) does not have an assigned occupancy value in SemanticSLAM.")
         else:
             self.node.get_logger().warn("No detections received")
         # Update previously detected objects based on map shifts.

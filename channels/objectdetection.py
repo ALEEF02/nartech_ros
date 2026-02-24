@@ -38,7 +38,7 @@ else:
 
 class ObjectDetector:
     def __init__(self, node: Node, tf_buffer):
-        self.minconf = 0.1
+        self.minconf = 0.2
         self.node = node
         self.tf_buffer = tf_buffer  # Reserved for future extensions.
         self.processing = False

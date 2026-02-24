@@ -9,7 +9,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetParametersFromFile
 
 
@@ -59,6 +59,7 @@ def generate_launch_description():
     pointcloud_transform_tolerance_sec = LaunchConfiguration('pointcloud_transform_tolerance_sec')
     base_frame = LaunchConfiguration('base_frame')
     camera_frame = LaunchConfiguration('camera_frame')
+    robot_description_file = LaunchConfiguration('robot_description_file')
 
     declare_contract_file = DeclareLaunchArgument(
         'contract_file',
@@ -157,6 +158,11 @@ def generate_launch_description():
         'camera_frame',
         default_value=str(contract.get('camera_frame', 'd435i_depth_cam_optical')),
     )
+    declare_robot_description_file = DeclareLaunchArgument(
+        'robot_description_file',
+        default_value='/home/nartech/unitree_rl_gym/resources/robots/g1_description/g1_29dof.urdf',
+        description='Absolute path to the URDF used by robot_state_publisher.',
+    )
 
     pointcloud_to_scan = Node(
         condition=IfCondition(start_scan_pipeline),
@@ -254,6 +260,18 @@ def generate_launch_description():
         name='base_footprint_alias',
         output='screen',
         arguments=['0', '0', '0', '0', '0', '0', base_frame, 'base_footprint'],
+    )
+    robot_state_publisher_node = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='screen',
+        parameters=[
+            {
+                'use_sim_time': use_sim_time,
+                'robot_description': Command(['cat ', robot_description_file]),
+            }
+        ],
     )
 
     nav2_bringup = IncludeLaunchDescription(
@@ -356,12 +374,14 @@ def generate_launch_description():
     ld.add_action(declare_pointcloud_transform_tolerance_sec)
     ld.add_action(declare_base_frame)
     ld.add_action(declare_camera_frame)
+    ld.add_action(declare_robot_description_file)
 
     ld.add_action(pointcloud_to_scan)
     ld.add_action(depth_to_scan)
     ld.add_action(scan_mux)
     ld.add_action(cmd_vel_adapter)
     ld.add_action(base_footprint_alias)
+    ld.add_action(robot_state_publisher_node)
     ld.add_action(nav2_with_slam_overrides)
     ld.add_action(nav2_without_slam_overrides)
     ld.add_action(nartech_node)

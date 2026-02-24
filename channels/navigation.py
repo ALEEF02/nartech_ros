@@ -28,7 +28,12 @@ class Navigation:
         self.navigation_retry_delay_sec = float(
             self.node.declare_parameter('navigation_retry_delay_sec', 0.5).value
         )
+        self.navigation_timeout_sec = max(
+            0.1,
+            float(self.node.declare_parameter('navigation_timeout_sec', 30.0).value),
+        )
         self._retry_timer = None
+        self._nav_timeout_timer = None
         qos_profile_str = rclpy.qos.QoSProfile(depth=1)
         qos_profile_str.history = rclpy.qos.QoSHistoryPolicy.KEEP_LAST
         qos_profile_str.durability = rclpy.qos.QoSDurabilityPolicy.TRANSIENT_LOCAL
@@ -74,8 +79,26 @@ class Navigation:
         self.send_navigation_goal(target_cell, command)
 
     def send_navigation_goal(self, target_cell, command):
+        if self.semantic_slam.origin is None or self.semantic_slam.new_resolution is None:
+            self.node.get_logger().warn("Map metadata not ready; cannot send navigation goal yet")
+            self.publish_done(force_mapupdate=False)
+            self.state = NAV_STATE_SET(NAV_STATE_FAIL)
+            return
+        if target_cell is not None and not self._is_cell_in_map(target_cell):
+            self.node.get_logger().warn(
+                f"Goal cell {target_cell} is outside map bounds "
+                f"{self.semantic_slam.new_width}x{self.semantic_slam.new_height}"
+            )
+            if "," in self.navigation_goal[1]:
+                self.node.get_logger().info("OUT OF BOUNDS, shortening command")
+                newcommand = ",".join(self.navigation_goal[1].split(",")[1:])
+                self.start_navigation_by_moves(newcommand)
+            else:
+                self.publish_done(force_mapupdate=False)
+                self.state = NAV_STATE_SET(NAV_STATE_FAIL)
+            return
         origin_x, origin_y = self.semantic_slam.origin.position.x, self.semantic_slam.origin.position.y
-        if not self.mettacontrolled and self.check_collision(target_cell):
+        if target_cell is not None and not self.mettacontrolled and self.check_collision(target_cell):
             if "," in self.navigation_goal[1]:
                 self.node.get_logger().info("COLLISION, shortening command")
                 newcommand = ",".join(self.navigation_goal[1].split(",")[1:])
@@ -130,14 +153,14 @@ class Navigation:
         goal_msg.pose = goal_pose
         sent_goal = self.action_client.send_goal_async(goal_msg)
         sent_goal.add_done_callback(self._goal_response_callback)
-         # ── one-shot 20 s watchdog ────────────────────────────────────────
-        if getattr(self, "_nav_timeout_timer", None):
+         # Configurable one-shot watchdog for goal execution timeout.
+        if self._nav_timeout_timer:
             self._nav_timeout_timer.cancel()        # clear any previous timer
         def _nav_timeout_cb():
             self.node.get_logger().warn("Navigation timeout – cancelling goal")
             self.cancel_goals()                     # abort Nav2 goals
             self._nav_timeout_timer.cancel()        # make it one-shot
-        self._nav_timeout_timer = self.node.create_timer(30.0, _nav_timeout_cb)
+        self._nav_timeout_timer = self.node.create_timer(self.navigation_timeout_sec, _nav_timeout_cb)
         # ──────────────────────────────────────────────────────────────────
 
     def _goal_response_callback(self, future):
@@ -245,12 +268,35 @@ class Navigation:
         return (current_x, current_y)
 
     def check_collision(self, target_cell):
+        if target_cell is None:
+            return False
+        if not self._is_cell_in_map(target_cell):
+            self.node.get_logger().warn(
+                f"Collision check rejected out-of-bounds target cell {target_cell}"
+            )
+            return True
+        if self.semantic_slam.low_res_grid is None:
+            self.node.get_logger().warn("Collision check skipped: low-res occupancy grid not ready")
+            return True
         cell_x, cell_y = target_cell
         idx = cell_y * self.semantic_slam.new_width + cell_x
-        if idx < len(self.semantic_slam.low_res_grid) and self.semantic_slam.low_res_grid[idx] not in [0, -1, 127]:
+        if idx >= len(self.semantic_slam.low_res_grid):
+            self.node.get_logger().warn(
+                f"Collision check index out of bounds: idx={idx}, grid_size={len(self.semantic_slam.low_res_grid)}"
+            )
+            return True
+        if self.semantic_slam.low_res_grid[idx] not in [0, -1, 127]:
             self.node.get_logger().info("COLLISION!!!")
             return True
         return False
+
+    def _is_cell_in_map(self, target_cell):
+        if target_cell is None:
+            return False
+        if self.semantic_slam.new_width is None or self.semantic_slam.new_height is None:
+            return False
+        cell_x, cell_y = target_cell
+        return 0 <= cell_x < self.semantic_slam.new_width and 0 <= cell_y < self.semantic_slam.new_height
 
     def cancel_goals(self):
         self._pending_cancel = True
