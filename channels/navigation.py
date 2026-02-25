@@ -32,6 +32,7 @@ class Navigation:
             0.1,
             float(self.node.declare_parameter('navigation_timeout_sec', 30.0).value),
         )
+        self.node.get_logger().info(f"max_navigation_retries: {self.max_navigation_retries}; navigation_retry_delay_sec: {self.navigation_retry_delay_sec}; navigation_timeout_sec: {self.navigation_timeout_sec}")
         self._retry_timer = None
         self._nav_timeout_timer = None
         qos_profile_str = rclpy.qos.QoSProfile(depth=1)

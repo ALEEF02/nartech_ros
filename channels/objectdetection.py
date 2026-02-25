@@ -229,7 +229,7 @@ class ObjectDetector:
                         name = self.model.names.get(cls_id, f"id{cls_id}")
                         label = f"{name}: {conf:.2f}"
                         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                        y_text = max(0, iy1 - 5)
+                        y_text = max(0, iy1 + 4 + th)
                         cv2.rectangle(
                             cv_image,
                             (ix1, max(0, y_text - th - 2)),

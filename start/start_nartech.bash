@@ -8,11 +8,17 @@ MODE="${1:-default}"
 DEMO_FILE="${2:-demo_with_nars.metta}"
 START_NARTECH_NODE=True
 PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
+CONTRACT_FILE="${CONTRACT_FILE:-${REPO_ROOT}/config/g1_ros_contract.yaml}"
 
 LIVOX_TOPIC="${LIVOX_TOPIC:-/livox/points}"
 DEPTH_TOPIC="${DEPTH_TOPIC:-/intel/D435i/depth}"
 CAMERA_INFO_TOPIC="${CAMERA_INFO_TOPIC:-/intel/D435i/camera_info}"
 SLAM_SCAN_MODE="${SLAM_SCAN_MODE:-lidar_only}"
+
+if [[ ! -f "${CONTRACT_FILE}" ]]; then
+  echo "[start_nartech] Error: contract file not found: ${CONTRACT_FILE}"
+  exit 1
+fi
 
 wait_for_topic() {
   local topic="$1"
@@ -50,7 +56,7 @@ if [[ "${MODE}" == "metta" ]]; then
   if command -v geany >/dev/null 2>&1; then
     geany "${REPO_ROOT}/demos/${DEMO_FILE}" &
   fi
-  gnome-terminal -- bash -c "sleep 4 && cd '${REPO_ROOT}' && ${PYTHON_BIN} main.py ./demos/${DEMO_FILE} --ros-args -p enable_arm_controller:=False -p use_sim_time:=False; exec bash" &
+  gnome-terminal -- bash -c "sleep 4 && cd '${REPO_ROOT}' && ${PYTHON_BIN} main.py ./demos/${DEMO_FILE} --ros-args --params-file '${CONTRACT_FILE}' -p enable_arm_controller:=False -p use_sim_time:=True; exec bash" &
 fi
 
 echo "[start_nartech] Waiting for Unitree ROS2 topics..."
@@ -63,7 +69,8 @@ wait_for_sensor_message "${CAMERA_INFO_TOPIC}" 15 || true
 
 echo "[start_nartech] Launching G1 bringup stack..."
 ros2 launch nartech_ros g1_nartech_bringup.launch.py \
-  use_sim_time:=False \
+  contract_file:="${CONTRACT_FILE}" \
+  use_sim_time:=True \
   start_nartech_node:="${START_NARTECH_NODE}" \
   enable_arm_controller:=False \
   slam:=True \
