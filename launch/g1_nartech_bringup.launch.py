@@ -52,7 +52,12 @@ def generate_launch_description():
     scan_output_topic = LaunchConfiguration('scan_output_topic')
     scan_output_frame = LaunchConfiguration('scan_output_frame')
     restamp_scan = LaunchConfiguration('restamp_scan')
+    restamp_backdate_sec = LaunchConfiguration('restamp_backdate_sec')
     scan_publish_rate_hz = LaunchConfiguration('scan_publish_rate_hz')
+    scan_publish_new_only = LaunchConfiguration('scan_publish_new_only')
+    primary_stale_timeout_sec = LaunchConfiguration('primary_stale_timeout_sec')
+    secondary_stale_timeout_sec = LaunchConfiguration('secondary_stale_timeout_sec')
+    primary_reacquire_delay_sec = LaunchConfiguration('primary_reacquire_delay_sec')
     max_input_msg_age_sec = LaunchConfiguration('max_input_msg_age_sec')
     max_future_offset_sec = LaunchConfiguration('max_future_offset_sec')
     pointcloud_target_frame = LaunchConfiguration('pointcloud_target_frame')
@@ -130,9 +135,29 @@ def generate_launch_description():
         'restamp_scan',
         default_value=str(contract.get('restamp_scan', True)).lower(),
     )
+    declare_restamp_backdate_sec = DeclareLaunchArgument(
+        'restamp_backdate_sec',
+        default_value=str(contract.get('restamp_backdate_sec', 0.08)),
+    )
     declare_scan_publish_rate_hz = DeclareLaunchArgument(
         'scan_publish_rate_hz',
         default_value=str(contract.get('scan_publish_rate_hz', 10.0)),
+    )
+    declare_scan_publish_new_only = DeclareLaunchArgument(
+        'scan_publish_new_only',
+        default_value=str(contract.get('scan_publish_new_only', False)).lower(),
+    )
+    declare_primary_stale_timeout_sec = DeclareLaunchArgument(
+        'primary_stale_timeout_sec',
+        default_value=str(contract.get('primary_stale_timeout_sec', 0.6)),
+    )
+    declare_secondary_stale_timeout_sec = DeclareLaunchArgument(
+        'secondary_stale_timeout_sec',
+        default_value=str(contract.get('secondary_stale_timeout_sec', 1.0)),
+    )
+    declare_primary_reacquire_delay_sec = DeclareLaunchArgument(
+        'primary_reacquire_delay_sec',
+        default_value=str(contract.get('primary_reacquire_delay_sec', 1.0)),
     )
     declare_max_input_msg_age_sec = DeclareLaunchArgument(
         'max_input_msg_age_sec',
@@ -181,7 +206,7 @@ def generate_launch_description():
                 'angle_min': -3.14159,
                 'angle_max': 3.14159,
                 'angle_increment': 0.0087,
-                'scan_time': 1.0,
+                'scan_time': 0.5,
                 'range_min': 0.3,
                 'range_max': 30.0,
                 'use_inf': True,
@@ -205,7 +230,7 @@ def generate_launch_description():
             {
                 'use_sim_time': use_sim_time,
                 'output_frame': base_frame,
-                'scan_time': 1.0,
+                'scan_time': 0.2,
                 'range_min': 0.6,
                 'range_max': 1.1,
                 'scan_height': 320,
@@ -233,7 +258,12 @@ def generate_launch_description():
                 'scan_output_topic': scan_output_topic,
                 'scan_output_frame': scan_output_frame,
                 'restamp_scan': restamp_scan,
+                'restamp_backdate_sec': restamp_backdate_sec,
                 'scan_publish_rate_hz': scan_publish_rate_hz,
+                'scan_publish_new_only': scan_publish_new_only,
+                'primary_stale_timeout_sec': primary_stale_timeout_sec,
+                'secondary_stale_timeout_sec': secondary_stale_timeout_sec,
+                'primary_reacquire_delay_sec': primary_reacquire_delay_sec,
                 'max_input_msg_age_sec': max_input_msg_age_sec,
                 'max_future_offset_sec': max_future_offset_sec,
             },
@@ -289,19 +319,22 @@ def generate_launch_description():
             'use_respawn': use_respawn,
         }.items(),
     )
+    nav2_runtime_overrides_file = os.path.join(nartech_share, 'config', 'nav2_runtime_overrides.yaml')
     slam_toolbox_overrides = SetParametersFromFile(
         os.path.join(nartech_share, 'config', 'slam_toolbox_overrides.yaml')
     )
+    nav2_runtime_overrides_lidar_only = SetParametersFromFile(nav2_runtime_overrides_file)
     nav2_with_slam_overrides = GroupAction(
         condition=IfCondition(
             PythonExpression(["'", slam_scan_mode, "' == 'lidar_only'"])
         ),
         actions=[
             slam_toolbox_overrides,
+            nav2_runtime_overrides_lidar_only,
             nav2_bringup,
         ]
     )
-    nav2_without_slam_overrides = IncludeLaunchDescription(
+    nav2_without_slam_overrides_include = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(nav2_share, 'launch', 'bringup_launch.py')),
         condition=IfCondition(
             PythonExpression(
@@ -319,6 +352,18 @@ def generate_launch_description():
             'use_composition': use_composition,
             'use_respawn': use_respawn,
         }.items(),
+    )
+    nav2_runtime_overrides_mux = SetParametersFromFile(nav2_runtime_overrides_file)
+    nav2_without_slam_overrides = GroupAction(
+        condition=IfCondition(
+            PythonExpression(
+                [start_nav2, " and '", slam_scan_mode, "' == 'mux'"]
+            )
+        ),
+        actions=[
+            nav2_runtime_overrides_mux,
+            nav2_without_slam_overrides_include,
+        ],
     )
 
     nartech_node = Node(
@@ -367,7 +412,12 @@ def generate_launch_description():
     ld.add_action(declare_scan_output_topic)
     ld.add_action(declare_scan_output_frame)
     ld.add_action(declare_restamp_scan)
+    ld.add_action(declare_restamp_backdate_sec)
     ld.add_action(declare_scan_publish_rate_hz)
+    ld.add_action(declare_scan_publish_new_only)
+    ld.add_action(declare_primary_stale_timeout_sec)
+    ld.add_action(declare_secondary_stale_timeout_sec)
+    ld.add_action(declare_primary_reacquire_delay_sec)
     ld.add_action(declare_max_input_msg_age_sec)
     ld.add_action(declare_max_future_offset_sec)
     ld.add_action(declare_pointcloud_target_frame)

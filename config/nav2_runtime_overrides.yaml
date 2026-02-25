@@ -1,0 +1,54 @@
+# Nartech runtime stability overrides for Nav2.
+# This file is layered on top of the upstream nav2_params.yaml at launch time.
+
+controller_server:
+  ros__parameters:
+    # Give controller/costmap sync a bit more margin under TF jitter.
+    costmap_update_timeout: 0.8
+    FollowPath:
+      transform_tolerance: 0.2
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      transform_tolerance: 0.25
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      # Decouple planning from brittle static-map bounds. Keep a rolling global window.
+      rolling_window: true
+      width: 60.0
+      height: 60.0
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      transform_tolerance: 0.3
+      # Avoid hard failure when /map is malformed or too small.
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: "LaserScan"
+          clearing: True
+          marking: True
+          max_obstacle_height: 2.0
+          obstacle_max_range: 3.5
+          obstacle_min_range: 0.0
+          raytrace_max_range: 4.0
+          raytrace_min_range: 0.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.7
+
+behavior_server:
+  ros__parameters:
+    transform_tolerance: 0.2
+
+collision_monitor:
+  ros__parameters:
+    transform_tolerance: 0.3
+    source_timeout: 2.0

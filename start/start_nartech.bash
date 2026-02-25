@@ -50,7 +50,7 @@ if [[ "${MODE}" == "metta" ]]; then
   if command -v geany >/dev/null 2>&1; then
     geany "${REPO_ROOT}/demos/${DEMO_FILE}" &
   fi
-  gnome-terminal -- bash -c "sleep 4 && cd '${REPO_ROOT}' && ${PYTHON_BIN} main.py ./demos/${DEMO_FILE} --ros-args -p enable_arm_controller:=False -p use_sim_time:=False; exec bash" &
+  gnome-terminal -- bash -c "sleep 4 && cd '${REPO_ROOT}' && ${PYTHON_BIN} main.py ./demos/${DEMO_FILE} --ros-args -p enable_arm_controller:=False -p use_sim_time:=True; exec bash" &
 fi
 
 echo "[start_nartech] Waiting for Unitree ROS2 topics..."
@@ -63,7 +63,7 @@ wait_for_sensor_message "${CAMERA_INFO_TOPIC}" 15 || true
 
 echo "[start_nartech] Launching G1 bringup stack..."
 ros2 launch nartech_ros g1_nartech_bringup.launch.py \
-  use_sim_time:=False \
+  use_sim_time:=True \
   start_nartech_node:="${START_NARTECH_NODE}" \
   enable_arm_controller:=False \
   slam:=True \
