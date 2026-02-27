@@ -27,7 +27,7 @@
     scan_output_topic: /scan
     scan_output_frame: base_link
     restamp_scan: true
-    restamp_backdate_sec: 0.05
+    restamp_backdate_sec: 0.10
     scan_publish_new_only: false
     
     # Sensor cadence in this stack:

@@ -24,9 +24,13 @@ wait_for_topic() {
   local topic="$1"
   local timeout_s="${2:-30}"
   local start_s
+  local topic_list
   start_s="$(date +%s)"
   while true; do
-    if ros2 topic list | grep -Fxq "${topic}"; then
+    # Avoid piping `ros2 topic list` into `grep -q` to prevent BrokenPipeError
+    # when grep exits early after finding a match.
+    topic_list="$(ros2 topic list 2>/dev/null || true)"
+    if [[ $'\n'"${topic_list}"$'\n' == *$'\n'"${topic}"$'\n'* ]]; then
       echo "[start_nartech] Found topic: ${topic}"
       return 0
     fi
