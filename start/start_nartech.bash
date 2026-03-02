@@ -68,6 +68,7 @@ wait_for_topic "/tf" 30 || true
 wait_for_topic "${LIVOX_TOPIC}" 30 || true
 wait_for_topic "${DEPTH_TOPIC}" 30 || true
 wait_for_topic "${CAMERA_INFO_TOPIC}" 30 || true
+wait_for_sensor_message "${LIVOX_TOPIC}" 15 || true
 wait_for_sensor_message "${DEPTH_TOPIC}" 15 || true
 wait_for_sensor_message "${CAMERA_INFO_TOPIC}" 15 || true
 

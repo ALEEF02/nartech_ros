@@ -39,6 +39,7 @@
     max_input_msg_age_sec: 8.0
     max_future_offset_sec: 0.25
     scan_publish_rate_hz: 8.0
+    nav2_start_delay_sec: 2.0
 
     max_navigation_retries: 3
     navigation_retry_delay_sec: 0.5

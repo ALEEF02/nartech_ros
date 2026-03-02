@@ -6,8 +6,8 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
-from launch.conditions import IfCondition
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, SetParametersFromFile
@@ -52,6 +52,11 @@ def generate_launch_description():
     scan_output_topic = LaunchConfiguration('scan_output_topic')
     scan_output_frame = LaunchConfiguration('scan_output_frame')
     restamp_scan = LaunchConfiguration('restamp_scan')
+    restamp_backdate_sec = LaunchConfiguration('restamp_backdate_sec')
+    scan_publish_new_only = LaunchConfiguration('scan_publish_new_only')
+    primary_stale_timeout_sec = LaunchConfiguration('primary_stale_timeout_sec')
+    secondary_stale_timeout_sec = LaunchConfiguration('secondary_stale_timeout_sec')
+    primary_reacquire_delay_sec = LaunchConfiguration('primary_reacquire_delay_sec')
     scan_publish_rate_hz = LaunchConfiguration('scan_publish_rate_hz')
     max_input_msg_age_sec = LaunchConfiguration('max_input_msg_age_sec')
     max_future_offset_sec = LaunchConfiguration('max_future_offset_sec')
@@ -60,6 +65,7 @@ def generate_launch_description():
     base_frame = LaunchConfiguration('base_frame')
     camera_frame = LaunchConfiguration('camera_frame')
     robot_description_file = LaunchConfiguration('robot_description_file')
+    nav2_start_delay_sec = LaunchConfiguration('nav2_start_delay_sec')
 
     declare_contract_file = DeclareLaunchArgument(
         'contract_file',
@@ -130,6 +136,26 @@ def generate_launch_description():
         'restamp_scan',
         default_value=str(contract.get('restamp_scan', True)).lower(),
     )
+    declare_restamp_backdate_sec = DeclareLaunchArgument(
+        'restamp_backdate_sec',
+        default_value=str(contract.get('restamp_backdate_sec', 0.1)),
+    )
+    declare_scan_publish_new_only = DeclareLaunchArgument(
+        'scan_publish_new_only',
+        default_value=str(contract.get('scan_publish_new_only', False)).lower(),
+    )
+    declare_primary_stale_timeout_sec = DeclareLaunchArgument(
+        'primary_stale_timeout_sec',
+        default_value=str(contract.get('primary_stale_timeout_sec', 6.5)),
+    )
+    declare_secondary_stale_timeout_sec = DeclareLaunchArgument(
+        'secondary_stale_timeout_sec',
+        default_value=str(contract.get('secondary_stale_timeout_sec', 3.0)),
+    )
+    declare_primary_reacquire_delay_sec = DeclareLaunchArgument(
+        'primary_reacquire_delay_sec',
+        default_value=str(contract.get('primary_reacquire_delay_sec', 2.0)),
+    )
     declare_scan_publish_rate_hz = DeclareLaunchArgument(
         'scan_publish_rate_hz',
         default_value=str(contract.get('scan_publish_rate_hz', 10.0)),
@@ -163,6 +189,11 @@ def generate_launch_description():
         default_value='/home/nartech/unitree_rl_gym/resources/robots/g1_description/g1_29dof.urdf',
         description='Absolute path to the URDF used by robot_state_publisher.',
     )
+    declare_nav2_start_delay_sec = DeclareLaunchArgument(
+        'nav2_start_delay_sec',
+        default_value=str(contract.get('nav2_start_delay_sec', 2.0)),
+        description='Delay before starting NAV2 navigation bringup to avoid startup TF/scan races.',
+    )
 
     pointcloud_to_scan = Node(
         condition=IfCondition(start_scan_pipeline),
@@ -176,7 +207,7 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'target_frame': pointcloud_target_frame,
                 'transform_tolerance': pointcloud_transform_tolerance_sec,
-                'min_height': 0.2,
+                'min_height': -0.1, # From the pelvis, meters
                 'max_height': 5.0,
                 'angle_min': -3.14159,
                 'angle_max': 3.14159,
@@ -233,6 +264,11 @@ def generate_launch_description():
                 'scan_output_topic': scan_output_topic,
                 'scan_output_frame': scan_output_frame,
                 'restamp_scan': restamp_scan,
+                'restamp_backdate_sec': restamp_backdate_sec,
+                'scan_publish_new_only': scan_publish_new_only,
+                'primary_stale_timeout_sec': primary_stale_timeout_sec,
+                'secondary_stale_timeout_sec': secondary_stale_timeout_sec,
+                'primary_reacquire_delay_sec': primary_reacquire_delay_sec,
                 'scan_publish_rate_hz': scan_publish_rate_hz,
                 'max_input_msg_age_sec': max_input_msg_age_sec,
                 'max_future_offset_sec': max_future_offset_sec,
@@ -320,6 +356,18 @@ def generate_launch_description():
             'use_respawn': use_respawn,
         }.items(),
     )
+    nav2_start_group = TimerAction(
+        period=nav2_start_delay_sec,
+        actions=[
+            GroupAction(
+                condition=IfCondition(start_nav2),
+                actions=[
+                    nav2_with_slam_overrides,
+                    nav2_without_slam_overrides,
+                ],
+            ),
+        ]
+    )
 
     nartech_node = Node(
         condition=IfCondition(start_nartech_node),
@@ -367,6 +415,11 @@ def generate_launch_description():
     ld.add_action(declare_scan_output_topic)
     ld.add_action(declare_scan_output_frame)
     ld.add_action(declare_restamp_scan)
+    ld.add_action(declare_restamp_backdate_sec)
+    ld.add_action(declare_scan_publish_new_only)
+    ld.add_action(declare_primary_stale_timeout_sec)
+    ld.add_action(declare_secondary_stale_timeout_sec)
+    ld.add_action(declare_primary_reacquire_delay_sec)
     ld.add_action(declare_scan_publish_rate_hz)
     ld.add_action(declare_max_input_msg_age_sec)
     ld.add_action(declare_max_future_offset_sec)
@@ -375,6 +428,7 @@ def generate_launch_description():
     ld.add_action(declare_base_frame)
     ld.add_action(declare_camera_frame)
     ld.add_action(declare_robot_description_file)
+    ld.add_action(declare_nav2_start_delay_sec)
 
     ld.add_action(pointcloud_to_scan)
     ld.add_action(depth_to_scan)
@@ -382,7 +436,6 @@ def generate_launch_description():
     ld.add_action(cmd_vel_adapter)
     ld.add_action(base_footprint_alias)
     ld.add_action(robot_state_publisher_node)
-    ld.add_action(nav2_with_slam_overrides)
-    ld.add_action(nav2_without_slam_overrides)
+    ld.add_action(nav2_start_group)
     ld.add_action(nartech_node)
     return ld
