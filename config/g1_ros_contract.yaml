@@ -44,6 +44,8 @@
     max_navigation_retries: 3
     navigation_retry_delay_sec: 0.5
     navigation_timeout_sec: 90.0
+    
+    downsample_factor: 8
 
     pointcloud_target_frame: base_link
     pointcloud_transform_tolerance_sec: 0.5
