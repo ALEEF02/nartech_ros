@@ -98,6 +98,11 @@ class SemanticSLAM:
             return Point(x=x_from_center, y=y_from_center, z=depth_value)
         return Point(x=depth_value, y=-x_from_center, z=-y_from_center)
 
+    def _normalize_detection_category(self, category):
+        if category is None:
+            return "unknown"
+        return "_".join(str(category).strip().split())
+
     def occ_grid_callback(self, msg):
         self.node.get_logger().info("NEW OCC GRID")
         self.cached_msg = msg
@@ -157,12 +162,13 @@ class SemanticSLAM:
                     if confidence > self.object_detector.minconf:  # Confidence threshold for semantic mapping
                         center_x = int(detection[0] * self.object_detector.width)
                         center_y = int(detection[1] * self.object_detector.height)
-                        category = self.object_detector.classes[class_id]
+                        category_raw = self.object_detector.classes[class_id]
+                        category = self._normalize_detection_category(category_raw)
                         if depth_image is None:
                             self.node.get_logger().warn(f"Got detection ({category}) but no depth image")
                             continue
                         depth_value = depth_image[center_y, center_x]
-                        if category == "sports ball" or category == "orange":
+                        if category in ("sports_ball", "orange"):
                             category = "frisbee"
                             print("SEMANTIC SLAM: CATEGORY REMAP")
                         if depth_value <= 0: continue
