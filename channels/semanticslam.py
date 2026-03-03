@@ -85,6 +85,19 @@ class SemanticSLAM:
             return default
         return max(0.0, min(1.0, confidence))
 
+    def _project_pixel_to_camera_point(self, center_x, center_y, depth_value):
+        fx = max(1e-6, float(self.object_detector.fx))
+        fy = max(1e-6, float(self.object_detector.fy))
+        u = float(center_x) - (float(self.object_detector.width) / 2.0)
+        v = float(center_y) - (float(self.object_detector.height) / 2.0)
+        x_from_center = (u * depth_value) / fx
+        y_from_center = (v * depth_value) / fy
+        # d435i_depth_cam_optical is an optical frame: x right, y down, z forward.
+        # If a non-optical camera frame is used, keep backward-compatible base-style projection.
+        if "optical" in str(self.camera_frame).lower():
+            return Point(x=x_from_center, y=y_from_center, z=depth_value)
+        return Point(x=depth_value, y=-x_from_center, z=-y_from_center)
+
     def occ_grid_callback(self, msg):
         self.node.get_logger().info("NEW OCC GRID")
         self.cached_msg = msg
@@ -158,11 +171,7 @@ class SemanticSLAM:
                             # Create a point in camera coordinates.
                             camera_point = PointStamped(
                                 header=Header(stamp=Time().to_msg(), frame_id=self.camera_frame),
-                                point=Point(
-                                    x=depth_value,
-                                    y=-(center_x - (self.object_detector.width / 2)) * depth_value / self.object_detector.fx,
-                                    z=-(center_y - (self.object_detector.height / 2)) * depth_value / self.object_detector.fy
-                                )
+                                point=self._project_pixel_to_camera_point(center_x, center_y, depth_value)
                             )
                             try:
                                 # Transform the point into the map frame.
