@@ -49,8 +49,8 @@ def narsplugin_init(runnerinstance):
 ;perceive the seen and remembered objects as percept events
 (= (nartech.nars.perceive $objects)
    (let* (($obj (superpose $objects))
-          ((detection $category (coordinates $x $y)) $obj))
-         (superpose ((nartech.nars (AddBeliefEvent (((($x * $y) * $category) --> perceive) (1.0 0.9))))
+          ((detectionTruth $category (coordinates $x $y) ($f $c)) $obj))
+         (superpose ((nartech.nars (AddBeliefEvent (((($x * $y) * $category) --> perceive) ($f $c))))
                      (nartech.nars (Command concurrent))))))
     """)
 

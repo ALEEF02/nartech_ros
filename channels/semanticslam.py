@@ -50,6 +50,7 @@ class SemanticSLAM:
                    "fridge": -123, "sink": -122, "stove": -121, "frisbee": -123, "unknown": -1 }
         self.previous_detections_persistence = 100000.0  # seconds
         self.previous_detections = {}
+        self.previous_detections_truth = {}
         # Downsampling parameters
         self.downsample_factor = int(_get_or_declare_parameter(self.node, 'downsample_factor', 28))
         # Set up a QoS profile for map topics.
@@ -74,6 +75,15 @@ class SemanticSLAM:
         self.mapupdate = 0
         self.goalstart = 0
         self.inventory = []
+
+    def _sanitize_truth_confidence(self, value, default=0.9):
+        try:
+            confidence = float(value)
+        except (TypeError, ValueError):
+            return default
+        if not math.isfinite(confidence):
+            return default
+        return max(0.0, min(1.0, confidence))
 
     def occ_grid_callback(self, msg):
         self.node.get_logger().info("NEW OCC GRID")
@@ -118,6 +128,7 @@ class SemanticSLAM:
             for objectlabel in self.inventory + ["{SELF}"]:
                 self.previous_detections[objectlabel] = (time.time(), self.robot_lowres_x, self.robot_lowres_y,
                                                          original_origin.position.x, original_origin.position.y, None, None, None)
+                self.previous_detections_truth[objectlabel] = (1.0, 0.9)
             self.node.get_logger().info(f"Marked robot position at ({self.robot_lowres_x}, {self.robot_lowres_y}) as occupied.")
         else:
             self.node.get_logger().warn("Robot position is out of bounds in the downsampled map.")
@@ -129,7 +140,7 @@ class SemanticSLAM:
                 for detection in out:
                     scores = detection[5:]
                     class_id = int(np.argmax(scores))
-                    confidence = scores[class_id]
+                    confidence = self._sanitize_truth_confidence(scores[class_id])
                     if confidence > self.object_detector.minconf:  # Confidence threshold for semantic mapping
                         center_x = int(detection[0] * self.object_detector.width)
                         center_y = int(detection[1] * self.object_detector.height)
@@ -169,6 +180,7 @@ class SemanticSLAM:
                                                                           original_origin.position.x, original_origin.position.y, 
                                                                           transformed_point_map, transformed_point_base_link, 
                                                                           (detection[0], detection[1], depth_value))
+                                    self.previous_detections_truth[category] = (1.0, confidence)
                                     self.low_res_grid[obj_idx] = self.M[category]
                                     self.node.get_logger().info(f"Marked detected object ({category}) at ({object_grid_x}, {object_grid_y}) in grid.")
                                 else:

@@ -9,6 +9,7 @@ from hyperon.ext import register_atoms
 from hyperon import *
 import time
 import io
+import math
 
 NAV_STATE_FAIL = "FAIL"
 NAV_STATE_BUSY = "BUSY"
@@ -129,6 +130,7 @@ def space_tick(node = None):
             label = cmd.split("(pick ")[1].split(")")[0]
             node.pick(label)
         alldetections = deepcopy(node.semantic_slam.previous_detections)
+        alltruth = deepcopy(getattr(node.semantic_slam, "previous_detections_truth", {}))
         objects = "("
         if "{SELF}" in node.semantic_slam.previous_detections:
             (t, object_grid_x, object_grid_y, origin_x, origin_y, point_map, point_base_link, imagecoords_depth) = node.semantic_slam.previous_detections["{SELF}"]
@@ -136,11 +138,26 @@ def space_tick(node = None):
             if x_y_unknown:
                 (x_unknown,y_unknown) =  x_y_unknown
                 alldetections["unknown"] = (time.time(), x_unknown, y_unknown, origin_x, origin_y, None, None, None)
+                alltruth["unknown"] = (1.0, 0.9)
         print(alldetections)
         for category in alldetections:
             (t, object_grid_x, object_grid_y, origin_x, origin_y, point_map, point_base_link, imagecoords_depth) = alldetections[category]
             SEXP = f"(detection {category} (coordinates {object_grid_x} {object_grid_y}))"
-            objects += SEXP
+            (freq, conf) = alltruth.get(category, (1.0, 0.9))
+            try:
+                freq = float(freq)
+                conf = float(conf)
+            except (TypeError, ValueError):
+                freq = 1.0
+                conf = 0.9
+            if not math.isfinite(freq):
+                freq = 1.0
+            if not math.isfinite(conf):
+                conf = 0.9
+            freq = max(0.0, min(1.0, freq))
+            conf = max(0.0, min(1.0, conf))
+            SEXP_TRUTH = f"(detectionTruth {category} (coordinates {object_grid_x} {object_grid_y}) ({freq:.4f} {conf:.4f}))"
+            objects += SEXP + SEXP_TRUTH
             if category == "{SELF}":
                 SELF_position = (object_grid_x, object_grid_y)
         objects += ")"
