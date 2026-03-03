@@ -155,13 +155,19 @@ class SemanticSLAM:
                         if depth_value <= 0: continue
                         if category in self.M:
                             self.node.get_logger().info(f"Detecting object ({category}) {depth_value}m away")
-                            # Create a point in camera coordinates.
+                            # camera_frame is an optical frame (x right, y down, z forward).
+                            # Project pixel+depth into optical 3D, then let TF rotate into base/map.
+                            u = center_x - (self.object_detector.width / 2.0)
+                            v = center_y - (self.object_detector.height / 2.0)
+                            x_optical = (u * depth_value) / self.object_detector.fx
+                            y_optical = (v * depth_value) / self.object_detector.fy
+                            z_optical = depth_value
                             camera_point = PointStamped(
                                 header=Header(stamp=Time().to_msg(), frame_id=self.camera_frame),
                                 point=Point(
-                                    x=depth_value,
-                                    y=-(center_x - (self.object_detector.width / 2)) * depth_value / self.object_detector.fx,
-                                    z=-(center_y - (self.object_detector.height / 2)) * depth_value / self.object_detector.fy
+                                    x=x_optical,
+                                    y=y_optical,
+                                    z=z_optical,
                                 )
                             )
                             try:
