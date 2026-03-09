@@ -49,6 +49,8 @@ class ObjectDetector:
 
         self.image_width = 320
         self.image_height = 240
+        self.width = self.image_width
+        self.height = self.image_height
         self.horizontal_fov = 1.25  # radians
         self.fx = self.image_width / (2 * np.tan(self.horizontal_fov / 2))
         self.fy = self.image_height / (2 * np.tan(self.horizontal_fov / 2))
@@ -89,6 +91,7 @@ class ObjectDetector:
         self.last_detection_wall_time = 0.0
         self.last_rgb_rx_wall_time = None
         self.last_depth_rx_wall_time = None
+        self.last_depth_stamp = None
         self.last_health_warn = 0.0
 
         self.model = None
@@ -267,6 +270,7 @@ class ObjectDetector:
 
     def depth_callback(self, msg):
         self.last_depth_rx_wall_time = time.time()
+        self.last_depth_stamp = Time.from_msg(msg.header.stamp)
         if self.bridge is None:
             return
         try:
@@ -280,3 +284,16 @@ class ObjectDetector:
                 self.depth_image = depth
         except Exception as exc:
             self.node.get_logger().warn(f"Depth callback conversion error: {exc}")
+
+    def get_depth_snapshot(self):
+        with self.lock:
+            if self.depth_image is None:
+                return None
+            return {
+                "depth_image": self.depth_image.copy(),
+                "width": int(self.width),
+                "height": int(self.height),
+                "fx": float(self.fx),
+                "fy": float(self.fy),
+                "stamp": self.last_depth_stamp,
+            }

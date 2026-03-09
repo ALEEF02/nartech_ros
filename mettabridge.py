@@ -134,7 +134,14 @@ def space_tick(node = None):
         objects = "("
         if "{SELF}" in node.semantic_slam.previous_detections:
             (t, object_grid_x, object_grid_y, origin_x, origin_y, point_map, point_base_link, imagecoords_depth) = node.semantic_slam.previous_detections["{SELF}"]
-            x_y_unknown = BFS_for_nearest_unknown_cell(node.semantic_slam.low_res_grid, node.semantic_slam.new_width, node.semantic_slam.new_height, object_grid_x, object_grid_y)
+            x_y_unknown = BFS_for_nearest_unknown_cell(
+                node.semantic_slam.low_res_grid,
+                node.semantic_slam.new_width,
+                node.semantic_slam.new_height,
+                object_grid_x,
+                object_grid_y,
+                getattr(node.semantic_slam, "camera_seen_grid", None),
+            )
             if x_y_unknown:
                 (x_unknown,y_unknown) =  x_y_unknown
                 alldetections["unknown"] = (time.time(), x_unknown, y_unknown, origin_x, origin_y, None, None, None)
