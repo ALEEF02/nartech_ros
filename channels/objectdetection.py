@@ -106,7 +106,7 @@ class ObjectDetector:
 
         # --- Detector model selection (YOLO26 via Ultralytics) ---
         # Default is the smallest YOLO26 Detect model for edge/CPU use.
-        self.yolo_model_name = str(self.node.declare_parameter('yolo_model', 'yolo26n.pt').value)
+        self.yolo_model_name = str(self.node.declare_parameter('yolo_model', 'yolo26s.pt').value)
         self.yolo_device = str(self.node.declare_parameter('yolo_device', 'cpu').value)
         self.yolo_imgsz = int(self.node.declare_parameter('yolo_imgsz', 640).value)
 

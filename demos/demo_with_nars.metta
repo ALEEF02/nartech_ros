@@ -9,7 +9,7 @@
 !(nartech.nars (AddBeliefEternal (((fridge * kitchen) --> partOf) (1.0 0.9))))
 !(nartech.nars (AddBeliefEternal (((sink * kitchen) --> partOf) (1.0 0.9))))
 !(nartech.nars (AddBeliefEternal (((stove * kitchen) --> partOf) (1.0 0.9))))
-!(nartech.nars (AddBeliefEternal (((table * kitchen) --> partOf) (1.0 0.9))))
+!(nartech.nars (AddBeliefEternal (((dining_table * kitchen) --> partOf) (1.0 0.9))))
 !(nartech.nars (AddBeliefEternal (((chair * kitchen) --> partOf) (1.0 0.9))))
 ;How to go to a location of an object using ^go($location) operation
 !(nartech.nars (AddBeliefEternal ((((($location * $object) --> perceive) &/
