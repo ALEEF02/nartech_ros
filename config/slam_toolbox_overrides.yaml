@@ -26,3 +26,13 @@ sync_slam_toolbox_node:
     base_frame: base_scan_level
     odom_frame: odom
     transform_publish_period: 0.02
+
+collision_monitor:
+  ros__parameters:
+    base_frame_id: base_scan_level
+    transform_tolerance: 0.3
+
+/collision_monitor:
+  ros__parameters:
+    base_frame_id: base_scan_level
+    transform_tolerance: 0.3

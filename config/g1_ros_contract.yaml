@@ -33,7 +33,9 @@
     scan_level_frame: base_scan_level
     scan_level_publish_rate_hz: 50.0
     restamp_scan: true
-    restamp_backdate_sec: 0.10
+    # Keep scan timestamps safely behind freshest odom/map TF to avoid
+    # "extrapolation into the future" during gait-induced TF jitter.
+    restamp_backdate_sec: 0.20
     scan_publish_new_only: false
     
     # Sensor cadence in this stack:
