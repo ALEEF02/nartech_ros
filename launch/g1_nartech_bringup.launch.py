@@ -61,8 +61,6 @@ def generate_launch_description():
     max_input_msg_age_sec = LaunchConfiguration('max_input_msg_age_sec')
     max_future_offset_sec = LaunchConfiguration('max_future_offset_sec')
     pointcloud_target_frame = LaunchConfiguration('pointcloud_target_frame')
-    pointcloud_min_height = LaunchConfiguration('pointcloud_min_height')
-    pointcloud_max_height = LaunchConfiguration('pointcloud_max_height')
     pointcloud_transform_tolerance_sec = LaunchConfiguration('pointcloud_transform_tolerance_sec')
     base_frame = LaunchConfiguration('base_frame')
     scan_level_frame = LaunchConfiguration('scan_level_frame')
@@ -175,14 +173,6 @@ def generate_launch_description():
         'pointcloud_target_frame',
         default_value=str(contract.get('pointcloud_target_frame', 'base_scan_level')),
     )
-    declare_pointcloud_min_height = DeclareLaunchArgument(
-        'pointcloud_min_height',
-        default_value=str(contract.get('pointcloud_min_height', -0.1)),
-    )
-    declare_pointcloud_max_height = DeclareLaunchArgument(
-        'pointcloud_max_height',
-        default_value=str(contract.get('pointcloud_max_height', 5.0)),
-    )
     declare_pointcloud_transform_tolerance_sec = DeclareLaunchArgument(
         'pointcloud_transform_tolerance_sec',
         default_value=str(contract.get('pointcloud_transform_tolerance_sec', 0.5)),
@@ -222,8 +212,8 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'target_frame': pointcloud_target_frame,
                 'transform_tolerance': pointcloud_transform_tolerance_sec,
-                'min_height': pointcloud_min_height,
-                'max_height': pointcloud_max_height,
+                'min_height': -0.1, # From the pelvis, meters
+                'max_height': 5.0,
                 'angle_min': -3.14159,
                 'angle_max': 3.14159,
                 'angle_increment': 0.0087,
@@ -439,8 +429,6 @@ def generate_launch_description():
     ld.add_action(declare_max_input_msg_age_sec)
     ld.add_action(declare_max_future_offset_sec)
     ld.add_action(declare_pointcloud_target_frame)
-    ld.add_action(declare_pointcloud_min_height)
-    ld.add_action(declare_pointcloud_max_height)
     ld.add_action(declare_pointcloud_transform_tolerance_sec)
     ld.add_action(declare_base_frame)
     ld.add_action(declare_scan_level_frame)

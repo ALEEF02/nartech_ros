@@ -54,6 +54,4 @@
     downsample_factor: 8
 
     pointcloud_target_frame: base_scan_level
-    pointcloud_min_height: -1.0
-    pointcloud_max_height: 5.0
     pointcloud_transform_tolerance_sec: 0.5
