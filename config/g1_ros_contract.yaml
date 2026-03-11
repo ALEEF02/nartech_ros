@@ -29,7 +29,9 @@
     scan_primary_topic: /scan/livox
     scan_secondary_topic: /scan/depth
     scan_output_topic: /scan
-    scan_output_frame: base_link
+    scan_output_frame: base_scan_level
+    scan_level_frame: base_scan_level
+    scan_level_publish_rate_hz: 50.0
     restamp_scan: true
     restamp_backdate_sec: 0.10
     scan_publish_new_only: false
@@ -51,5 +53,5 @@
     
     downsample_factor: 8
 
-    pointcloud_target_frame: base_link
+    pointcloud_target_frame: base_scan_level
     pointcloud_transform_tolerance_sec: 0.5

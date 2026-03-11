@@ -33,6 +33,7 @@ setup(
             'nartech_main = nartech_ros.nartech_main:main',
             'cmd_vel_adapter = nartech_ros.cmd_vel_adapter:main',
             'scan_mux_selector = nartech_ros.scan_mux_selector:main',
+            'leveled_scan_frame_publisher = nartech_ros.leveled_scan_frame_publisher:main',
         ],
     },
 )
