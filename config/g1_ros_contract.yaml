@@ -32,9 +32,9 @@
     scan_output_frame: base_scan_level
     scan_level_frame: base_scan_level
     scan_level_publish_rate_hz: 50.0
-    restamp_scan: true
+    restamp_scan: false
     restamp_backdate_sec: 0.10
-    scan_publish_new_only: false
+    scan_publish_new_only: true
     
     # Sensor cadence in this stack:
     # - Livox scan updates ~every 5s (primary)

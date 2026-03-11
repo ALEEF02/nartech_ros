@@ -56,13 +56,13 @@ class ScanMuxSelector(Node):
             self.declare_parameter('restamp_backdate_sec', 0.05).value
         )
         self.restamp_scan = _as_bool(self.declare_parameter(
-            'restamp_scan', True
+            'restamp_scan', False
         ).value)
         self.scan_output_frame = self.declare_parameter(
             'scan_output_frame', ''
         ).value
         self.publish_new_only = _as_bool(self.declare_parameter(
-            'scan_publish_new_only', False
+            'scan_publish_new_only', True
         ).value)
 
         self.primary_msg = None
