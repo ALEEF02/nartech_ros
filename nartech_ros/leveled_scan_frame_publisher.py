@@ -60,7 +60,9 @@ class LeveledScanFramePublisher(Node):
         half_yaw = 0.5 * yaw
 
         out = TransformStamped()
-        out.header.stamp = self.get_clock().now().to_msg()
+        # Keep stamp aligned with the source odom->base transform to minimize
+        # time skew during TF lookups at scan timestamps.
+        out.header.stamp = source_tf.header.stamp
         out.header.frame_id = self.odom_frame
         out.child_frame_id = self.scan_level_frame
         out.transform.translation = source_tf.transform.translation
