@@ -62,10 +62,8 @@ def generate_launch_description():
     max_future_offset_sec = LaunchConfiguration('max_future_offset_sec')
     pointcloud_target_frame = LaunchConfiguration('pointcloud_target_frame')
     pointcloud_transform_tolerance_sec = LaunchConfiguration('pointcloud_transform_tolerance_sec')
-    odom_frame = LaunchConfiguration('odom_frame')
     base_frame = LaunchConfiguration('base_frame')
     scan_level_frame = LaunchConfiguration('scan_level_frame')
-    scan_level_publish_rate_hz = LaunchConfiguration('scan_level_publish_rate_hz')
     camera_frame = LaunchConfiguration('camera_frame')
     robot_description_file = LaunchConfiguration('robot_description_file')
     nav2_start_delay_sec = LaunchConfiguration('nav2_start_delay_sec')
@@ -100,7 +98,7 @@ def generate_launch_description():
         'slam_scan_mode',
         default_value='lidar_only',
         description="SLAM scan source mode: 'lidar_only' applies local slam_toolbox overrides "
-                    "(including scan_topic=/scan), 'mux' uses Nav2 defaults."
+                    "(including scan_topic=/scan/livox), 'mux' uses Nav2 defaults."
     )
 
     declare_livox_points_topic = DeclareLaunchArgument(
@@ -179,10 +177,6 @@ def generate_launch_description():
         'pointcloud_transform_tolerance_sec',
         default_value=str(contract.get('pointcloud_transform_tolerance_sec', 0.5)),
     )
-    declare_odom_frame = DeclareLaunchArgument(
-        'odom_frame',
-        default_value=str(contract.get('odom_frame', 'odom')),
-    )
     declare_base_frame = DeclareLaunchArgument(
         'base_frame',
         default_value=str(contract.get('base_frame', 'base_link')),
@@ -190,10 +184,6 @@ def generate_launch_description():
     declare_scan_level_frame = DeclareLaunchArgument(
         'scan_level_frame',
         default_value=str(contract.get('scan_level_frame', 'base_scan_level')),
-    )
-    declare_scan_level_publish_rate_hz = DeclareLaunchArgument(
-        'scan_level_publish_rate_hz',
-        default_value=str(contract.get('scan_level_publish_rate_hz', 50.0)),
     )
     declare_camera_frame = DeclareLaunchArgument(
         'camera_frame',
@@ -261,24 +251,6 @@ def generate_launch_description():
             ('depth', d435_depth_topic),
             ('depth_camera_info', d435_camera_info_topic),
             ('scan', scan_secondary_topic),
-        ],
-    )
-
-    leveled_scan_frame_publisher = Node(
-        condition=IfCondition(start_scan_pipeline),
-        package='nartech_ros',
-        executable='leveled_scan_frame_publisher',
-        name='leveled_scan_frame_publisher',
-        output='screen',
-        parameters=[
-            contract_file,
-            {
-                'use_sim_time': use_sim_time,
-                'odom_frame': odom_frame,
-                'base_frame': base_frame,
-                'scan_level_frame': scan_level_frame,
-                'publish_rate_hz': scan_level_publish_rate_hz,
-            },
         ],
     )
 
@@ -458,17 +430,14 @@ def generate_launch_description():
     ld.add_action(declare_max_future_offset_sec)
     ld.add_action(declare_pointcloud_target_frame)
     ld.add_action(declare_pointcloud_transform_tolerance_sec)
-    ld.add_action(declare_odom_frame)
     ld.add_action(declare_base_frame)
     ld.add_action(declare_scan_level_frame)
-    ld.add_action(declare_scan_level_publish_rate_hz)
     ld.add_action(declare_camera_frame)
     ld.add_action(declare_robot_description_file)
     ld.add_action(declare_nav2_start_delay_sec)
 
     ld.add_action(pointcloud_to_scan)
     ld.add_action(depth_to_scan)
-    ld.add_action(leveled_scan_frame_publisher)
     ld.add_action(scan_mux)
     ld.add_action(cmd_vel_adapter)
     ld.add_action(base_footprint_alias)

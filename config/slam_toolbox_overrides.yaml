@@ -1,28 +1,28 @@
 slam_toolbox:
   ros__parameters:
-    # Use muxed/resampled scan stream; raw /scan/livox can be too sparse (~0.8 Hz).
-    scan_topic: /scan
+    # Keep SLAM on the fresh lidar stream; /scan remains muxed for Nav2.
+    scan_topic: /scan/livox
     base_frame: base_scan_level
     odom_frame: odom
     transform_publish_period: 0.02
 
 /slam_toolbox:
   ros__parameters:
-    scan_topic: /scan
+    scan_topic: /scan/livox
     base_frame: base_scan_level
     odom_frame: odom
     transform_publish_period: 0.02
 
 sync_slam_toolbox_node:
   ros__parameters:
-    scan_topic: /scan
+    scan_topic: /scan/livox
     base_frame: base_scan_level
     odom_frame: odom
     transform_publish_period: 0.02
 
 /sync_slam_toolbox_node:
   ros__parameters:
-    scan_topic: /scan
+    scan_topic: /scan/livox
     base_frame: base_scan_level
     odom_frame: odom
     transform_publish_period: 0.02
