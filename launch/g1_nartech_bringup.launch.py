@@ -212,7 +212,7 @@ def generate_launch_description():
                 'use_sim_time': use_sim_time,
                 'target_frame': pointcloud_target_frame,
                 'transform_tolerance': pointcloud_transform_tolerance_sec,
-                'min_height': -0.1, # From the pelvis, meters
+                'min_height': -0.7, # From the pelvis, meters
                 'max_height': 5.0,
                 'angle_min': -3.14159,
                 'angle_max': 3.14159,
