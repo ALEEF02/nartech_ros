@@ -1,50 +1,79 @@
-import rclpy
-import time
 import math
-import functools
+import time
+
+import rclpy
+from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
-from rclpy.duration import Duration
-from geometry_msgs.msg import PoseStamped
-from moveit_msgs.srv import GetPositionIK, GetMotionPlan
-from moveit_msgs.msg import RobotState, JointConstraint, Constraints, MotionPlanRequest, RobotTrajectory
-from trajectory_msgs.msg import JointTrajectoryPoint, JointTrajectory
-from sensor_msgs.msg import JointState
-from rclpy.action import ActionClient
-from std_srvs.srv import Empty
-from control_msgs.action import FollowJointTrajectory
-from geometry_msgs.msg import Twist
 from rclpy.task import Future
-from rclpy.time import Time
+from std_msgs.msg import String
+
 
 def _get_or_declare_parameter(node, name, default):
     if node.has_parameter(name):
         return node.get_parameter(name).value
     return node.declare_parameter(name, default).value
 
-# Approach and grab params
-GOAL_TARGET_DISTANCE = 0.38 #0.37
-yaw_tol, depth_tol = 0.05, 0.02
-k_yaw,  k_fwd      = 0.3,  0.3
-CORRECTION_DT      = 0.5
-GRIPPER_GRIP_HEIGHT = 0.2
-BACKUP_SPEED  = -0.1          # m/s
-BACKUP_LOSSTIME = 5.0         #after how many seconds to consider detection to be lost
-# Gripper Open and close angle
-GRIPPER_OPEN_TARGET = 0.019
-GRIPPER_CLOSE_TARGET = -0.01
-# Slip detection params
-GRIPPER_SLIP_TOL    = 0.002   # +- tolerance around closed angle
-SLIP_CHECK_PERIOD   = 0.2     # Seconds between checks
+
+# Visual servoing toward the detected orange ball.
+GOAL_TARGET_DISTANCE = 0.44
+YAW_TOL = 0.05
+DEPTH_TOL = 0.03
+K_YAW = 0.3
+K_FWD = 0.25
+CORRECTION_DT = 0.5
+BACKUP_SPEED = -0.08
+BACKUP_LOSSTIME = 5.0
+
+# Right arm pose targets, expressed in the MuJoCo ROS bridge base_link frame.
+PREGRASP_BACKOFF_X = 0.06
+PREGRASP_LIFT_Z = 0.07
+GRASP_FORWARD_OFFSET_X = -0.015
+GRASP_LIFT_OFFSET_Z = 0.01
+POST_GRASP_LIFT_Z = 0.10
+CARRY_POSE = (0.18, -0.18, 0.30)
+DROP_POSE = (0.24, -0.16, 0.18)
+STOW_POSE = (0.16, -0.22, 0.26)
+
+ARM_GOAL_TIMEOUT_SEC = 6.0
+HAND_TIMEOUT_SEC = 3.0
+GRASP_TIMEOUT_SEC = 2.0
+DROP_CLEAR_TIMEOUT_SEC = 2.0
+GRASP_LOSS_TIMEOUT_SEC = 0.5
+
+STATUS_IDLE = "IDLE"
+STATUS_BUSY = "BUSY"
+STATUS_SUCCESS = "SUCCESS"
+STATUS_FAIL = "FAIL"
+
+HAND_OPEN = "OPEN"
+HAND_CLOSED = "CLOSED"
+HAND_MOVING = "MOVING"
+
+RIGHT_ARM_GOAL_TOPIC = "/unitree/right_arm/goal_pose"
+RIGHT_ARM_STATUS_TOPIC = "/unitree/right_arm/status"
+RIGHT_HAND_COMMAND_TOPIC = "/unitree/right_hand/command"
+RIGHT_HAND_STATE_TOPIC = "/unitree/right_hand/state"
+GRASPED_OBJECT_LABEL_TOPIC = "/unitree/grasped_object_label"
+
 
 # Assume mettabridge defines these constants and functions:
-if __name__ == '__main__': #arm test does not need that
+if __name__ == "__main__":
     NAV_STATE_BUSY = NAV_STATE_SUCCESS = NAV_STATE_FAIL = 42
     NAV_STATE_SET = lambda x: 42
     NAV_STATE_GET = lambda: 42
     ARM_STATE_SET = lambda x: 42
     ARM_STATE_GET = lambda: 42
 else:
-    from mettabridge import NAV_STATE_SET, NAV_STATE_GET, NAV_STATE_BUSY, NAV_STATE_SUCCESS, NAV_STATE_FAIL, ARM_STATE_SET, ARM_STATE_GET
+    from mettabridge import (
+        ARM_STATE_GET,
+        ARM_STATE_SET,
+        NAV_STATE_BUSY,
+        NAV_STATE_FAIL,
+        NAV_STATE_GET,
+        NAV_STATE_SET,
+        NAV_STATE_SUCCESS,
+    )
+
 
 class ArmController:
     def __init__(self, node=None, semantic_slam=None, navigation=None):
@@ -54,357 +83,440 @@ class ArmController:
         self.navigation = navigation
         self.objectlabel = None
         if node is None:
-            self.own_node = Node('arm_controller')
+            self.own_node = Node("arm_controller")
             self.node = self.own_node
         else:
             self.own_node = None
             self.node = node
-        self.base_frame = _get_or_declare_parameter(self.node, 'base_frame', 'base_link')
+
+        self.base_frame = _get_or_declare_parameter(self.node, "base_frame", "base_link")
         self.picking = False
-        self.cmd_pub = self.node.create_publisher(Twist, '/cmd_vel', 10)
-        self.ik_client = self.node.create_client(GetPositionIK, 'compute_ik')
-        self.plan_client = self.node.create_client(GetMotionPlan, 'plan_kinematic_path')
-        self.arm_client = ActionClient(self.node, FollowJointTrajectory, '/arm_controller/follow_joint_trajectory')
-        self.gripper_client = ActionClient(self.node, FollowJointTrajectory, '/gripper_controller/follow_joint_trajectory')
-        for client, name in [(self.ik_client, 'IK'), (self.plan_client, 'Planner')]:
-            if not client.wait_for_service(timeout_sec=5.0):
-                self.node.get_logger().error(f"{name} service not available")
-                self.available = False
-                return
-        if not self.arm_client.wait_for_server(timeout_sec=5.0):
-            self.node.get_logger().error("arm_controller action not available")
-            self.available = False
-            return
-        # Cache latest /joint_states for slip detection
-        self._latest_joint_state = None
-        def _joint_state_cb(msg):
-            self._latest_joint_state = msg
-        self._joint_state_sub = self.node.create_subscription(JointState, '/joint_states', _joint_state_cb, 10)
-        # Start periodic slip-check timer
-        self._slip_timer = self.node.create_timer(SLIP_CHECK_PERIOD, self._check_gripper_slip)
-        # Open the gripper
-        self.control_gripper("open")
-        # Move arm to pre-grap position
-        self.move_end_effector_to(x=0.15, y=0.0, z=0.3)
+        self.dropping = False
+        self.cmd_pub = self.node.create_publisher(Twist, "/cmd_vel", 10)
+        self.goal_pose_pub = self.node.create_publisher(PoseStamped, RIGHT_ARM_GOAL_TOPIC, 10)
+        self.hand_command_pub = self.node.create_publisher(String, RIGHT_HAND_COMMAND_TOPIC, 10)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Slip detection: opens gripper if it ever reaches fully-closed angle
-    # while we think we are holding something.
-    # ─────────────────────────────────────────────────────────────────────────
-    def _check_gripper_slip(self):
-        if ARM_STATE_GET() == "FREE" or self._latest_joint_state is None:
+        self.right_arm_status = STATUS_IDLE
+        self.right_hand_state = HAND_OPEN
+        self.grasped_object_label = ""
+        self._grasp_missing_since = None
+        self._owned_timers = []
+
+        self.node.create_subscription(String, RIGHT_ARM_STATUS_TOPIC, self._right_arm_status_cb, 10)
+        self.node.create_subscription(String, RIGHT_HAND_STATE_TOPIC, self._right_hand_state_cb, 10)
+        self.node.create_subscription(String, GRASPED_OBJECT_LABEL_TOPIC, self._grasped_object_label_cb, 10)
+        self._grasp_watchdog = self.node.create_timer(0.2, self._check_grasp_state)
+        self._publish_hand_command("open")
+        self._publish_arm_goal(*STOW_POSE)
+
+    def _normalize_upper_state(self, value, default):
+        text = str(value).strip().upper()
+        return text if text else default
+
+    def _right_arm_status_cb(self, msg: String):
+        self.right_arm_status = self._normalize_upper_state(msg.data, STATUS_IDLE)
+
+    def _right_hand_state_cb(self, msg: String):
+        self.right_hand_state = self._normalize_upper_state(msg.data, HAND_OPEN)
+
+    def _grasped_object_label_cb(self, msg: String):
+        self.grasped_object_label = str(msg.data).strip()
+        if self.grasped_object_label:
+            self._grasp_missing_since = None
+
+    def _check_grasp_state(self):
+        carrying = ARM_STATE_GET()
+        if carrying == "FREE":
+            self._grasp_missing_since = None
             return
-        #update semantic map inventory (object locations move with robot)
-        self.semantic_slam.inventory = [ARM_STATE_GET()]
-        try:
-            li = self._latest_joint_state.name.index('gripper_left_joint')
-            ri = self._latest_joint_state.name.index('gripper_right_joint')
-        except ValueError:
-            return  # joint names not published yet
-        l_pos = self._latest_joint_state.position[li]
-        r_pos = self._latest_joint_state.position[ri]
-        fully_closed = (l_pos <= GRIPPER_CLOSE_TARGET + GRIPPER_SLIP_TOL and
-                        r_pos <= GRIPPER_CLOSE_TARGET + GRIPPER_SLIP_TOL)
-        if not fully_closed:
+        if self.picking or self.dropping:
+            self._grasp_missing_since = None
             return
-        self.node.get_logger().warn(f'arm_controller: Slip detected at {l_pos:+.3f}, {r_pos:+.3f}')
+        if self.grasped_object_label == carrying:
+            self._grasp_missing_since = None
+            return
+        if self._grasp_missing_since is None:
+            self._grasp_missing_since = time.time()
+            return
+        if time.time() - self._grasp_missing_since < GRASP_LOSS_TIMEOUT_SEC:
+            return
+        self.node.get_logger().warn(
+            f"arm_controller: Lost grasp of {carrying}; clearing manipulation state"
+        )
         ARM_STATE_SET("FREE")
-        self.navigation.cancel_goals()
-        NAV_STATE_SET(NAV_STATE_FAIL)                               # block nav while recovering
-        self.control_gripper('open')
+        NAV_STATE_SET(NAV_STATE_FAIL)
+        self._grasp_missing_since = None
 
-    def pick_at(self, x: float, y: float, z: float, *, done_cb=None) -> Future:
-        # ─── contract object we’ll fulfil at the end ────────────────────────────
-        result_future: Future = Future()
-        # ─── sanitize end-effector target ───────────────────────────────────────
-        if y != 0: y = 0.0
-        x = min(max(x, 0.2), 0.23)   # clamp 0.2 ≤ x ≤ 0.23 (z=0.05) # clamp 0.2 ≤ x ≤ 0.3 (z=0.1)
-        z = min(max(z, 0.05), 0.2)   # clamp 0.1 ≤ z ≤ 0.2 (z=0.05)
-        self.node.get_logger().info(f"arm_controller: PICK CORRECTED {x:.2f} {y:.2f} {z:.2f}")
-        # ─── common success / failure paths ─────────────────────────────────────
-        def _finish(success: bool) -> None:
-            if done_cb:
+    def _destroy_owned_timer(self, timer):
+        if timer is None:
+            return
+        try:
+            timer.cancel()
+        except Exception:
+            pass
+        try:
+            self.node.destroy_timer(timer)
+        except Exception:
+            pass
+        if timer in self._owned_timers:
+            self._owned_timers.remove(timer)
+
+    def _wait_for_predicate(self, predicate, timeout_sec, description) -> Future:
+        future = Future()
+        start_time = time.time()
+        holder = {"timer": None}
+
+        def _poll():
+            if future.done():
+                self._destroy_owned_timer(holder["timer"])
+                return
+            if predicate():
+                future.set_result(True)
+                self._destroy_owned_timer(holder["timer"])
+                return
+            if time.time() - start_time >= timeout_sec:
+                self.node.get_logger().warn(f"arm_controller: Timeout waiting for {description}")
+                future.set_result(False)
+                self._destroy_owned_timer(holder["timer"])
+
+        holder["timer"] = self.node.create_timer(0.05, _poll)
+        self._owned_timers.append(holder["timer"])
+        return future
+
+    def _publish_hand_command(self, command: str):
+        msg = String()
+        msg.data = command
+        self.hand_command_pub.publish(msg)
+        self.right_hand_state = HAND_MOVING
+        self.node.get_logger().info(f"arm_controller: hand command -> {command}")
+
+    def _publish_arm_goal(self, x: float, y: float, z: float):
+        msg = PoseStamped()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        msg.header.frame_id = self.base_frame
+        msg.pose.position.x = float(x)
+        msg.pose.position.y = float(y)
+        msg.pose.position.z = float(z)
+        msg.pose.orientation.w = 1.0
+        self.right_arm_status = STATUS_BUSY
+        self.goal_pose_pub.publish(msg)
+        self.node.get_logger().info(
+            f"arm_controller: arm goal -> x={x:.3f} y={y:.3f} z={z:.3f}"
+        )
+
+    def _wait_for_hand_state(self, desired_state: str, timeout_sec: float) -> Future:
+        return self._wait_for_predicate(
+            lambda: self.right_hand_state == desired_state,
+            timeout_sec,
+            f"hand state {desired_state}",
+        )
+
+    def _wait_for_arm_result(self, timeout_sec: float) -> Future:
+        return self._wait_for_predicate(
+            lambda: self.right_arm_status in (STATUS_SUCCESS, STATUS_FAIL),
+            timeout_sec,
+            "arm motion result",
+        )
+
+    def _wait_for_grasp_label(self, label: str, timeout_sec: float) -> Future:
+        return self._wait_for_predicate(
+            lambda: self.grasped_object_label == label,
+            timeout_sec,
+            f"grasp label {label}",
+        )
+
+    def _wait_for_label_clear(self, timeout_sec: float) -> Future:
+        return self._wait_for_predicate(
+            lambda: self.grasped_object_label == "",
+            timeout_sec,
+            "grasp label clear",
+        )
+
+    def _arm_goal_and_wait(self, pose, timeout_sec: float, next_cb):
+        self._publish_arm_goal(*pose)
+
+        def _after_wait(fut):
+            ok = bool(fut.result())
+            if not ok or self.right_arm_status != STATUS_SUCCESS:
+                next_cb(False)
+                return
+            next_cb(True)
+
+        self._wait_for_arm_result(timeout_sec).add_done_callback(_after_wait)
+
+    def _hand_command_and_wait(self, command: str, desired_state: str, timeout_sec: float, next_cb):
+        self._publish_hand_command(command)
+
+        def _after_wait(fut):
+            next_cb(bool(fut.result()))
+
+        self._wait_for_hand_state(desired_state, timeout_sec).add_done_callback(_after_wait)
+
+    def _stop_motion(self):
+        self.cmd_pub.publish(Twist())
+
+    def _make_pregrasp_pose(self, target_x, target_y, target_z):
+        return (
+            max(0.14, target_x - PREGRASP_BACKOFF_X),
+            target_y,
+            max(0.04, target_z + PREGRASP_LIFT_Z),
+        )
+
+    def _make_grasp_pose(self, target_x, target_y, target_z):
+        return (
+            max(0.12, target_x + GRASP_FORWARD_OFFSET_X),
+            target_y,
+            max(0.02, target_z + GRASP_LIFT_OFFSET_Z),
+        )
+
+    def _make_lift_pose(self, target_x, target_y, target_z):
+        return (
+            max(CARRY_POSE[0], target_x - 0.02),
+            target_y,
+            max(CARRY_POSE[2], target_z + POST_GRASP_LIFT_Z),
+        )
+
+    def pick_at(self, x: float, y: float, z: float, objectlabel: str, *, done_cb=None) -> Future:
+        result_future = Future()
+        pregrasp_pose = self._make_pregrasp_pose(x, y, z)
+        grasp_pose = self._make_grasp_pose(x, y, z)
+        lift_pose = self._make_lift_pose(x, y, z)
+
+        def _finish(success: bool):
+            if done_cb is not None:
                 try:
                     done_cb(success)
-                except Exception as e:  # noqa: BLE001
-                    self.node.get_logger().warn(f"arm_controller: done_cb raised {e!r}")
+                except Exception as exc:
+                    self.node.get_logger().warn(f"arm_controller: done_cb raised {exc!r}")
             if not result_future.done():
                 result_future.set_result(success)
-        def _abort(reason: str, exc: BaseException | None = None) -> None:
-            msg = f"arm_controller: ABORT – {reason}"
-            if exc: msg += f" ({exc!r})"
-            self.node.get_logger().error(msg)
+
+        def _abort(reason: str):
+            self.node.get_logger().error(f"arm_controller: ABORT - {reason}")
+            self._finish_pick_failure()
             _finish(False)
-        # ─── async chain helpers (each checks the previous step) ────────────────
-        def after_open(fut):
-            if fut.exception():
-                return _abort("gripper open failed", fut.exception())
-            self.move_end_effector_to(x=0.15, y=0.0, z=0.3).add_done_callback(after_lifted)
-        def after_lifted(fut):
-            if fut.exception():
-                return _abort("pre-lift failed", fut.exception())
-            self.move_end_effector_to(x=x, y=y, z=z).add_done_callback(after_descended)
-        def after_descended(fut):
-            if fut.exception():
-                return _abort("descend failed", fut.exception())
-            self.control_gripper("close").add_done_callback(after_closed)
-        def after_closed(fut):
-            if fut.exception():
-                return _abort("gripper close failed", fut.exception())
-            self.move_end_effector_to(x=0.15, y=0.0, z=0.3).add_done_callback(after_final_lift)
-        def after_final_lift(fut):
-            if fut.exception():
-                return _abort("final lift failed", fut.exception())
-            self.node.get_logger().info("arm_controller: DONE")
+
+        def _after_open(ok: bool):
+            if not ok:
+                _abort("hand failed to open")
+                return
+            self._arm_goal_and_wait(pregrasp_pose, ARM_GOAL_TIMEOUT_SEC, _after_pregrasp)
+
+        def _after_pregrasp(ok: bool):
+            if not ok:
+                _abort("pregrasp motion failed")
+                return
+            self._arm_goal_and_wait(grasp_pose, ARM_GOAL_TIMEOUT_SEC, _after_grasp_pose)
+
+        def _after_grasp_pose(ok: bool):
+            if not ok:
+                _abort("grasp motion failed")
+                return
+            self._hand_command_and_wait("close", HAND_CLOSED, HAND_TIMEOUT_SEC, _after_close)
+
+        def _after_close(ok: bool):
+            if not ok:
+                _abort("hand failed to close")
+                return
+
+            def _after_label(label_fut):
+                if not bool(label_fut.result()):
+                    _abort(f"failed to physically grasp {objectlabel}")
+                    return
+                self._arm_goal_and_wait(lift_pose, ARM_GOAL_TIMEOUT_SEC, _after_lift)
+
+            self._wait_for_grasp_label(objectlabel, GRASP_TIMEOUT_SEC).add_done_callback(_after_label)
+
+        def _after_lift(ok: bool):
+            if not ok:
+                _abort("lift motion failed")
+                return
+            self._arm_goal_and_wait(CARRY_POSE, ARM_GOAL_TIMEOUT_SEC, _after_carry)
+
+        def _after_carry(ok: bool):
+            if not ok:
+                _abort("carry pose failed")
+                return
+            self.node.get_logger().info("arm_controller: PICK complete")
             _finish(True)
-        # ─── kick things off ────────────────────────────────────────────────────
-        self.control_gripper("open").add_done_callback(after_open)
+
+        self._hand_command_and_wait("open", HAND_OPEN, HAND_TIMEOUT_SEC, _after_open)
         return result_future
 
+    def _finish_pick_failure(self):
+        self.picking = False
+        ARM_STATE_SET("FREE")
+        NAV_STATE_SET(NAV_STATE_FAIL)
+        self._publish_hand_command("open")
+        self._publish_arm_goal(*STOW_POSE)
+
     def pick(self, objectlabel: str, recover=False) -> None:
-        # ─── Guards ─────────────────────────────────────────────────────────────
         self.objectlabel = objectlabel
         if not recover:
             if NAV_STATE_GET() == NAV_STATE_BUSY or self.picking or ARM_STATE_GET() != "FREE":
                 NAV_STATE_SET(NAV_STATE_FAIL)
-                self.node.get_logger().info("arm_controller: Pick skipped, already in progress or arm not free")
+                self.node.get_logger().info(
+                    "arm_controller: Pick skipped, already in progress or arm not free"
+                )
                 return
         else:
             if self.picking:
                 self.node.get_logger().warn("arm_controller: Recovering, but pick already in progress")
                 NAV_STATE_SET(NAV_STATE_FAIL)
                 return
+
         NAV_STATE_SET(NAV_STATE_BUSY)
         self.picking = True
         if not objectlabel or objectlabel not in self.semantic_slam.previous_detections:
-            self.node.get_logger().info("arm_controller: Pick failed, object location not observed or remembered")
-            ARM_STATE_SET("FREE"); NAV_STATE_SET(NAV_STATE_FAIL)
+            self.node.get_logger().info(
+                "arm_controller: Pick failed, object location not observed or remembered"
+            )
+            ARM_STATE_SET("FREE")
+            NAV_STATE_SET(NAV_STATE_FAIL)
             self.picking = False
             return
+
         self.correction_attempts = 0
-        self.max_corrections     = 50
-        # Stop all motion
-        def _stop_motion():
-            self.cmd_pub.publish(Twist())
-        # Return yaw (rotation about Z) from geometry_msgs.msg.Quaternion.
+        self.max_corrections = 40
+
         def yaw_from_quat(q):
-            # q = (x, y, z, w)
             s = 2.0 * (q.w * q.z + q.x * q.y)
             c = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
             return math.atan2(s, c)
-        # ─── Timer callback ─────────────────────────────────────────────────────
-        def correction_step() -> None:
-            # ❶ Latest observation (needed *before* any read)
-            (t, _, _, _, _, spoint_map, spoint_base_link, imagecoords_depth) = self.semantic_slam.previous_detections[objectlabel]
-            # ❷ Abort if object missing for >5 s
-            if time.time() - t > BACKUP_LOSSTIME or spoint_base_link is None:
+
+        def correction_step():
+            (
+                t,
+                _,
+                _,
+                _,
+                _,
+                spoint_map,
+                spoint_base_link,
+                imagecoords_depth,
+            ) = self.semantic_slam.previous_detections[objectlabel]
+
+            if time.time() - t > BACKUP_LOSSTIME or spoint_base_link is None or imagecoords_depth is None:
                 self.correction_attempts += 1
                 back_twist = Twist()
                 back_twist.linear.x = BACKUP_SPEED
                 try:
-                    tf = self.semantic_slam.trans #robot position
-                    # robot pose in map
-                    rx, ry = tf.transform.translation.x, tf.transform.translation.y
+                    tf = self.semantic_slam.trans
+                    rx = tf.transform.translation.x
+                    ry = tf.transform.translation.y
                     yaw = yaw_from_quat(tf.transform.rotation)
-                    # angle robot -> object in map
-                    dx, dy = spoint_map.point.x - rx, spoint_map.point.y - ry
-                    angle  = math.atan2(dy, dx) - yaw
-                    angle  = (angle + math.pi) % (2 * math.pi) - math.pi
-                    back_twist.angular.z = k_yaw * angle
-                except Exception as e:
-                    self.node.get_logger().warn(f"Improved backing away failed: {e}")
+                    dx = spoint_map.point.x - rx
+                    dy = spoint_map.point.y - ry
+                    angle = math.atan2(dy, dx) - yaw
+                    angle = (angle + math.pi) % (2 * math.pi) - math.pi
+                    back_twist.angular.z = K_YAW * angle
+                except Exception as exc:
+                    self.node.get_logger().warn(f"arm_controller: backing away failed: {exc}")
                 self.cmd_pub.publish(back_twist)
-                self.node.get_logger().info("arm_controller: Object absent → backed away")
                 if self.correction_attempts >= self.max_corrections:
-                    _stop_motion()
-                    self.correction_timer.cancel()
-                    self.node.get_logger().info("arm_controller: Too many corrections.")
-                    ARM_STATE_SET("FREE"); NAV_STATE_SET(NAV_STATE_FAIL)
-                    self.picking = False
+                    self._stop_motion()
+                    self._destroy_owned_timer(self.correction_timer)
+                    self._finish_pick_failure()
                 return
+
             target_point = spoint_base_link.point
-            # ❸ Control law
             x_rel, _, depth = imagecoords_depth
-            x_err           = (x_rel - 0.5) * 2.0
-            depth_err       = depth - GOAL_TARGET_DISTANCE
+            x_err = (x_rel - 0.5) * 2.0
+            depth_err = depth - GOAL_TARGET_DISTANCE
             twist = Twist()
-            if abs(x_err) > yaw_tol:
-                twist.angular.z = -k_yaw * x_err
-            if abs(depth_err) > depth_tol:
-                twist.linear.x = k_fwd * depth_err
+            if abs(x_err) > YAW_TOL:
+                twist.angular.z = -K_YAW * x_err
+            if abs(depth_err) > DEPTH_TOL:
+                twist.linear.x = K_FWD * depth_err
             self.cmd_pub.publish(twist)
-            self.node.get_logger().info(f"Correction {self.correction_attempts + 1} | "
-                                        f"x_err={x_err:+.2f}, depth={depth:.2f}, "
-                                        f"cmd=({twist.linear.x:.2f}, {twist.angular.z:.2f})")
-            # ❹ Converged?
-            if abs(x_err) <= yaw_tol and abs(depth_err) <= depth_tol:
-                _stop_motion()
-                self.correction_timer.cancel()
-                self.node.get_logger().info("arm_controller: Aligned and close. Executing pick.")
-                def _on_grasp_done(success: bool):
+            self.node.get_logger().info(
+                f"arm_controller: align x_err={x_err:+.2f} depth={depth:.2f} "
+                f"cmd=({twist.linear.x:.2f}, {twist.angular.z:.2f})"
+            )
+
+            if abs(x_err) <= YAW_TOL and abs(depth_err) <= DEPTH_TOL:
+                self._stop_motion()
+                self._destroy_owned_timer(self.correction_timer)
+                self.node.get_logger().info("arm_controller: alignment complete; executing pick")
+
+                def _on_pick_complete(success: bool):
                     if success:
                         ARM_STATE_SET(objectlabel)
+                        NAV_STATE_SET(NAV_STATE_SUCCESS)
                     else:
                         ARM_STATE_SET("FREE")
-                    NAV_STATE_SET(NAV_STATE_SUCCESS if success else NAV_STATE_FAIL)
+                        NAV_STATE_SET(NAV_STATE_FAIL)
                     self.picking = False
-                self.pick_at(target_point.x, 0.0, target_point.z - GRIPPER_GRIP_HEIGHT, done_cb=_on_grasp_done)
+
+                self.pick_at(
+                    target_point.x,
+                    target_point.y,
+                    target_point.z,
+                    objectlabel,
+                    done_cb=_on_pick_complete,
+                )
                 return
-            # ❺ Bail-out if stuck
+
             self.correction_attempts += 1
             if self.correction_attempts >= self.max_corrections:
-                _stop_motion()
-                self.correction_timer.cancel()
-                self.node.get_logger().info("arm_controller: Too many corrections.")
-                ARM_STATE_SET("FREE"); NAV_STATE_SET(NAV_STATE_FAIL)
-                self.picking = False
-                return
-        # ─────────── Start periodic controller ──────────────────────────────────────
+                self._stop_motion()
+                self._destroy_owned_timer(self.correction_timer)
+                self._finish_pick_failure()
+
         self.correction_timer = self.node.create_timer(CORRECTION_DT, correction_step)
+        self._owned_timers.append(self.correction_timer)
 
     def drop(self):
-        if NAV_STATE_GET() == NAV_STATE_BUSY or ARM_STATE_GET() == "FREE":
+        if NAV_STATE_GET() == NAV_STATE_BUSY or ARM_STATE_GET() == "FREE" or self.dropping:
             return
+
+        held_label = ARM_STATE_GET()
         NAV_STATE_SET(NAV_STATE_BUSY)
-        def after_up(_):
-            self.move_end_effector_to(x=0.15, y=0.0, z=0.2).add_done_callback(after_down)
-        def after_down(_):
-            self.control_gripper("open").add_done_callback(after_open)
-        def after_open(_):
-            self.move_end_effector_to(x=0.15, y=0.0, z=0.3).add_done_callback(after_drop)
-        def after_drop(_):
-            self.node.get_logger().info("arm_controller: DROP complete")
-            ARM_STATE_SET("FREE")
-            NAV_STATE_SET(NAV_STATE_SUCCESS)
-        self.move_end_effector_to(x=0.15, y=0.0, z=0.3).add_done_callback(after_up)
+        self.dropping = True
 
-    def wait_for_joint_states(self, joint_names):
-        future = rclpy.task.Future()
-        def callback(msg):
-            if all(j in msg.name for j in joint_names):
-                future.set_result(msg)
-        self._joint_state_sub = self.node.create_subscription(JointState, '/joint_states', callback, 10)
-        def cleanup_on_done(_):
-            self.node.destroy_subscription(self._joint_state_sub)
-            self._joint_state_sub = None
-        future.add_done_callback(cleanup_on_done)
-        return future
+        def _finish(success: bool):
+            self.dropping = False
+            ARM_STATE_SET("FREE" if success else held_label)
+            NAV_STATE_SET(NAV_STATE_SUCCESS if success else NAV_STATE_FAIL)
 
-    def move_end_effector_to(self, x=0.15, y=0.0, z=0.2):
-        future = rclpy.task.Future()
-        joint_names = ['joint1', 'joint2', 'joint3', 'joint4']
-        def after_joint_state(fut):
-            joint_state_cur = fut.result()
-            # Step 1: Target pose:
-            self.node.get_logger().info('arm_controller: STEP 1')
-            pose = PoseStamped()
-            pose.header.frame_id = self.base_frame
-            pose.pose.position.x = x
-            pose.pose.position.y = y
-            pose.pose.position.z = z
-            pose.pose.orientation.w = 1.0
-            # Step 2: IK of it:
-            self.node.get_logger().info('arm_controller: STEP 2')
-            ik_req = GetPositionIK.Request()
-            ik_req.ik_request.group_name = 'arm'
-            ik_req.ik_request.ik_link_name = 'link5'
-            ik_req.ik_request.pose_stamped = pose
-            ik_req.ik_request.robot_state = RobotState(joint_state=joint_state_cur)
-            ik_req.ik_request.timeout.sec = 2
-            def after_ik(ik_fut):
-                ik_res = ik_fut.result()
-                if ik_res.error_code.val != 1:
-                    self.node.get_logger().error(f"arm_controller: IK failed with code {ik_res.error_code.val}")
-                    future.set_result(False)
-                    return
-                # Step 3: Set as joint goal:
-                self.node.get_logger().info('arm_controller: STEP 3')
-                goal_positions = [ik_res.solution.joint_state.position[
-                    ik_res.solution.joint_state.name.index(j)] for j in joint_names]
-                # Step 4: Plan to joint goal
-                self.node.get_logger().info('arm_controller: STEP 4')
-                req = GetMotionPlan.Request()
-                plan_req = MotionPlanRequest()
-                plan_req.group_name = 'arm'
-                # Step 5: Start state as current joint states
-                self.node.get_logger().info('arm_controller: STEP 5')
-                start_state = RobotState()
-                start_state.joint_state.name = joint_names
-                start_state.joint_state.position = [joint_state_cur.position[
-                    joint_state_cur.name.index(j)] for j in joint_names]
-                plan_req.start_state = start_state
-                # Step 6: Goal state as joint constraints from IK
-                self.node.get_logger().info('arm_controller: STEP 6')
-                goal_constraints = Constraints()
-                for j, pos in zip(joint_names, goal_positions):
-                    jc = JointConstraint()
-                    jc.joint_name = j
-                    jc.position = pos
-                    jc.tolerance_above = 0.01
-                    jc.tolerance_below = 0.01
-                    jc.weight = 1.0
-                    goal_constraints.joint_constraints.append(jc)
-                plan_req.goal_constraints = [goal_constraints]
-                # Step 7: Carry out planning to obtain trajectory:
-                self.node.get_logger().info('arm_controller: STEP 7')
-                plan_req.num_planning_attempts = 5
-                plan_req.allowed_planning_time = 5.0
-                req.motion_plan_request = plan_req
-                def after_plan(plan_fut):
-                    plan_res = plan_fut.result()
-                    if plan_res.motion_plan_response.error_code.val != 1:
-                        self.node.get_logger().error(f"arm_controller: Planning failed with code {plan_res.motion_plan_response.error_code.val}")
-                        future.set_result(False)
-                        return
-                    trajectory: JointTrajectory = plan_res.motion_plan_response.trajectory.joint_trajectory
-                    self.node.get_logger().info(f"arm_controller: Planned trajectory with {len(trajectory.points)} points.")
-                    # Step 8: Execute planned trajectory
-                    self.node.get_logger().info('arm_controller: STEP 8')
-                    goal_msg = FollowJointTrajectory.Goal()
-                    goal_msg.trajectory = trajectory
-                    self.node.get_logger().info("arm_controller: Sending trajectory to arm_controller...")
-                    def after_traj(goal_fut):
-                        goal_handle = goal_fut.result()
-                        if not goal_handle.accepted:
-                            self.node.get_logger().error("arm_controller: Trajectory rejected by arm_controller")
-                            future.set_result(False)
-                            return
-                        goal_handle.get_result_async().add_done_callback(lambda res_fut: future.set_result(True))
-                    self.arm_client.send_goal_async(goal_msg).add_done_callback(after_traj)
-                self.plan_client.call_async(req).add_done_callback(after_plan)
-            self.ik_client.call_async(ik_req).add_done_callback(after_ik)
-        self.wait_for_joint_states(joint_names).add_done_callback(after_joint_state)
-        return future
-    
-    def control_gripper(self, command):
-        future = rclpy.task.Future()
-        open_gripper = command == "open"
-        self.node.get_logger().info("arm_controller: Gripper open=" + str(open_gripper))
-        position = GRIPPER_OPEN_TARGET if open_gripper else GRIPPER_CLOSE_TARGET
-        goal_msg = FollowJointTrajectory.Goal()
-        goal_msg.trajectory.joint_names = ['gripper_left_joint', 'gripper_right_joint']
-        point = JointTrajectoryPoint()
-        point.positions = [position, position]
-        point.time_from_start.sec = 1
-        goal_msg.trajectory.points = [point]
-        def goal_sent_cb(fut):
-            goal_handle = fut.result()
-            if not goal_handle.accepted:
-                self.node.get_logger().error('arm_controller: Gripper goal rejected')
-                future.set_result(False)
+        def _after_stow(ok: bool):
+            if not ok:
+                _finish(False)
                 return
-            goal_handle.get_result_async().add_done_callback(lambda res_fut: future.set_result(True))
-        self.gripper_client.send_goal_async(goal_msg).add_done_callback(goal_sent_cb)
-        return future
+            self.node.get_logger().info("arm_controller: DROP complete")
+            _finish(True)
+
+        def _after_clear(clear_fut):
+            if not bool(clear_fut.result()):
+                _finish(False)
+                return
+            self._arm_goal_and_wait(STOW_POSE, ARM_GOAL_TIMEOUT_SEC, _after_stow)
+
+        def _after_open(ok: bool):
+            if not ok:
+                _finish(False)
+                return
+            self._wait_for_label_clear(DROP_CLEAR_TIMEOUT_SEC).add_done_callback(_after_clear)
+
+        def _after_drop_pose(ok: bool):
+            if not ok:
+                _finish(False)
+                return
+            self._hand_command_and_wait("open", HAND_OPEN, HAND_TIMEOUT_SEC, _after_open)
+
+        self._arm_goal_and_wait(DROP_POSE, ARM_GOAL_TIMEOUT_SEC, _after_drop_pose)
+
 
 def main():
     rclpy.init()
     armcontroller = ArmController()
-    armcontroller.pick_at(0.23, 0.0, 0.05)
-    end_time = time.time() + 10.0
+    armcontroller._publish_hand_command("open")
+    armcontroller._publish_arm_goal(*STOW_POSE)
+    end_time = time.time() + 5.0
     while time.time() < end_time and rclpy.ok():
         rclpy.spin_once(armcontroller.node, timeout_sec=0.1)
     rclpy.shutdown()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

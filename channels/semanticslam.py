@@ -1,4 +1,5 @@
 # semanticslam.py
+import cv2
 import tf2_geometry_msgs
 import time
 import os
@@ -73,6 +74,7 @@ class SemanticSLAM:
             "sink": -122,
             "stove": -121,
             "frisbee": -123,
+            "orangeball": -123,
             "unknown": -1,
         }
         self.previous_detections_persistence = 100000.0  # seconds
@@ -134,6 +136,40 @@ class SemanticSLAM:
         if category is None:
             return "unknown"
         return "_".join(str(category).strip().split())
+
+    def _is_orange_crop(self, bgr_image):
+        if bgr_image is None or bgr_image.size == 0:
+            return False
+        hsv_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2HSV)
+        mask_a = cv2.inRange(hsv_image, (5, 80, 60), (20, 255, 255))
+        mask_b = cv2.inRange(hsv_image, (0, 80, 60), (5, 255, 255))
+        mask = cv2.bitwise_or(mask_a, mask_b)
+        orange_ratio = float(np.count_nonzero(mask)) / float(mask.size)
+        return orange_ratio >= 0.20
+
+    def _canonicalize_detection_category(self, category_raw, detection, rgb_snapshot, detector_width, detector_height):
+        category = self._normalize_detection_category(category_raw)
+        if category not in ("sports_ball", "orange"):
+            return category
+        if rgb_snapshot is None:
+            return category
+        rgb_image = rgb_snapshot.get("rgb_image")
+        if rgb_image is None or rgb_image.size == 0:
+            return category
+        x_center = int(detection[0] * detector_width)
+        y_center = int(detection[1] * detector_height)
+        box_width = max(1, int(detection[2] * detector_width))
+        box_height = max(1, int(detection[3] * detector_height))
+        x0 = max(0, x_center - box_width // 2)
+        y0 = max(0, y_center - box_height // 2)
+        x1 = min(rgb_image.shape[1], x_center + box_width // 2)
+        y1 = min(rgb_image.shape[0], y_center + box_height // 2)
+        if x1 <= x0 or y1 <= y0:
+            return category
+        crop = rgb_image[y0:y1, x0:x1]
+        if self._is_orange_crop(crop):
+            return "orangeball"
+        return category
 
     def _is_cell_in_bounds(self, x, y):
         return 0 <= x < self.new_width and 0 <= y < self.new_height
@@ -380,6 +416,7 @@ class SemanticSLAM:
             self.node.get_logger().warn("Robot position is out of bounds in the downsampled map.")
 
         depth_snapshot = self.object_detector.get_depth_snapshot()
+        rgb_snapshot = self.object_detector.get_rgb_snapshot()
         depth_image = None if depth_snapshot is None else depth_snapshot.get("depth_image")
         object_detections = self.object_detector.detections
         detector_width = max(1, int(getattr(self.object_detector, "width", 1)))
@@ -404,16 +441,19 @@ class SemanticSLAM:
                     center_x = max(0, min(center_x, detector_width - 1))
                     center_y = max(0, min(center_y, detector_height - 1))
                     category_raw = self.object_detector.classes[class_id]
-                    category = self._normalize_detection_category(category_raw)
+                    category = self._canonicalize_detection_category(
+                        category_raw,
+                        detection,
+                        rgb_snapshot,
+                        detector_width,
+                        detector_height,
+                    )
                     if depth_image is None:
                         self.node.get_logger().warn(f"Got detection ({category}) but no depth image")
                         continue
                     depth_x = max(0, min(center_x, depth_width - 1))
                     depth_y = max(0, min(center_y, depth_height - 1))
                     depth_value = float(depth_image[depth_y, depth_x])
-                    if category in ("sports_ball", "orange"):
-                        category = "frisbee"
-                        print("SEMANTIC SLAM: CATEGORY REMAP")
                     if depth_value <= 0 or not math.isfinite(depth_value):
                         continue
                     if category not in self.M:

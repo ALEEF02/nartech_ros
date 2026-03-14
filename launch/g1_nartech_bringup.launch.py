@@ -191,7 +191,7 @@ def generate_launch_description():
     )
     declare_robot_description_file = DeclareLaunchArgument(
         'robot_description_file',
-        default_value='/home/nartech/unitree_rl_gym/resources/robots/g1_description/g1_29dof.urdf',
+        default_value='/home/nartech/unitree_rl_gym/resources/robots/g1_description/g1_29dof_with_hand_rev_1_0.urdf',
         description='Absolute path to the URDF used by robot_state_publisher.',
     )
     declare_nav2_start_delay_sec = DeclareLaunchArgument(

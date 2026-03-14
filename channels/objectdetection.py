@@ -44,6 +44,7 @@ class ObjectDetector:
         self.processing = False
         self.detections = None
         self.depth_image = None
+        self.rgb_image = None
         self.last_image_stamp = None
         self.lock = threading.Lock()
 
@@ -174,6 +175,9 @@ class ObjectDetector:
                 return
             self.last_image_stamp = Time.from_msg(msg.header.stamp)
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            raw_bgr = cv_image.copy()
+            with self.lock:
+                self.rgb_image = raw_bgr
             self.height, self.width, _ = cv_image.shape
             if self.width > 0 and self.height > 0:
                 self.fx = self.width / (2 * np.tan(self.horizontal_fov / 2))
@@ -296,4 +300,15 @@ class ObjectDetector:
                 "fx": float(self.fx),
                 "fy": float(self.fy),
                 "stamp": self.last_depth_stamp,
+            }
+
+    def get_rgb_snapshot(self):
+        with self.lock:
+            if self.rgb_image is None:
+                return None
+            return {
+                "rgb_image": self.rgb_image.copy(),
+                "width": int(self.width),
+                "height": int(self.height),
+                "stamp": self.last_image_stamp,
             }
